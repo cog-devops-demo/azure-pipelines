@@ -1,16 +1,20 @@
 {
   "artifact_name": "pricing-engine-drop",
   "service": "pricing-engine",
-  "expected_file_count": 12,
-  "expected_file_types": [".dll", ".pdb", ".json", ".xml"],
-  "expected_contents": [
-    "PricingEngine.dll",
-    "PricingEngine.pdb",
-    "appsettings.json",
-    "web.config"
+  "expected_file_count": 1,
+  "expected_file_types": [
+    ".zip"
   ],
-  "min_artifact_size_mb": 5,
-  "max_artifact_size_mb": 50,
-  "last_updated": "2024-08-15",
-  "updated_by": "ci-automation"
+  "expected_contents": [
+    "PricingEngine.zip"
+  ],
+  "observed_artifact_size_bytes": 54670,
+  "min_artifact_size_mb": 0.0261,
+  "max_artifact_size_mb": 0.1042,
+  "status": "observed",
+  "source": "azure-devops-run",
+  "ado_build_id": 30,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09",
+  "updated_by": "ado-run-capture"
 }
