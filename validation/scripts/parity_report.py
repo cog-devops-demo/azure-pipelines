@@ -163,7 +163,9 @@ def _count_tests(blob: bytes) -> tuple[int, bool]:
                 root = ET.fromstring(archive.read(name))
             except ET.ParseError:
                 continue
-            trx = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "UnitTestResult"]
+            for element in root.iter():
+                element.tag = element.tag.rsplit("}", 1)[-1]
+            trx = list(root.iter("UnitTestResult"))
             if trx:
                 count += len(trx)
                 measured = True
