@@ -56,22 +56,26 @@ stages:
             - template: templates/build/build-java.yml@templates_main
               parameters:
                 jdkVersion: '17'
+                projectDirectory: 'services/portfolio-api'
                 artifactName: $(artifactName)
 
           - ${{ if eq(parameters.templateBranch, 'master') }}:
             - template: templates/build/build-java.yml@templates_master
               parameters:
                 jdkVersion: '17'
+                projectDirectory: 'services/portfolio-api'
                 artifactName: $(artifactName)
 
           - ${{ if eq(parameters.templateBranch, 'staging/preprod') }}:
             - template: templates/build/build-java.yml@templates_preprod
               parameters:
                 jdkVersion: '17'
+                projectDirectory: 'services/portfolio-api'
                 artifactName: $(artifactName)
 
           - ${{ if eq(parameters.templateBranch, 'staging/release-hardening') }}:
             - template: templates/build/build-java.yml@templates_hardened
               parameters:
                 jdkVersion: '17'
+                projectDirectory: 'services/portfolio-api'
                 artifactName: $(artifactName)

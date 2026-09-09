@@ -21,8 +21,14 @@ stages:
           runOnce:
             deploy:
               steps:
-                - download: current
-                  artifact: ${{ parameters.artifactName }}
+                - checkout: self
+
+                - task: DownloadBuildArtifacts@1
+                  inputs:
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: ${{ parameters.artifactName }}
+                    downloadPath: '$(Pipeline.Workspace)'
 
                 - script: |
                     echo "Deploying ${{ parameters.artifactName }} to preprod"
