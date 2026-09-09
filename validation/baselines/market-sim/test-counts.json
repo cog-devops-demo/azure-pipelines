@@ -1,16 +1,16 @@
 {
-  "service": "pricing-engine",
+  "service": "market-sim",
   "expected_test_suites": 1,
-  "expected_total_tests": 36,
-  "expected_passed_tests": 36,
+  "expected_total_tests": 4,
+  "expected_passed_tests": 4,
   "minimum_pass_rate": 1.0,
   "frameworks": [
-    "xunit"
+    "cargo-test"
   ],
   "status": "observed",
   "source": "azure-devops-run",
-  "measurement": "ADO test run VSTest_TestResults_30",
-  "ado_build_id": 30,
+  "measurement": "`cargo test` output in build log (Run tests)",
+  "ado_build_id": 31,
   "ado_commit": "b00a483a",
   "last_updated": "2026-09-09"
 }
