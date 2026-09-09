@@ -147,21 +147,33 @@ def ado_facts(org: str, project: str, pipeline: str, sha: str, headers: dict) ->
 # GitHub Actions side
 # ---------------------------------------------------------------------------
 
-def _count_junit_tests(blob: bytes) -> int:
-    """Sum testcase elements across every JUnit XML file in a zip artifact."""
+def _count_tests(blob: bytes) -> tuple[int, bool]:
+    """Count test results in a zip artifact; report whether any were readable.
+
+    Understands JUnit XML (`testcase`) and VSTest TRX (`UnitTestResult`), the two
+    formats the migrated workflows publish.
+    """
     count = 0
+    measured = False
     with zipfile.ZipFile(BytesIO(blob)) as archive:
         for name in archive.namelist():
-            if not name.endswith(".xml"):
+            if not name.lower().endswith((".xml", ".trx")):
                 continue
             try:
                 root = ET.fromstring(archive.read(name))
             except ET.ParseError:
                 continue
-            suites = [root] if root.tag == "testsuite" else root.iter("testsuite")
+            trx = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "UnitTestResult"]
+            if trx:
+                count += len(trx)
+                measured = True
+                continue
+            suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+            if suites:
+                measured = True
             for suite in suites:
                 count += len(suite.findall("testcase"))
-    return count
+    return count, measured
 
 
 def gha_facts(repo: str, workflow: str, sha: str, token: str) -> dict:
@@ -171,11 +183,14 @@ def gha_facts(repo: str, workflow: str, sha: str, token: str) -> dict:
 
     runs = _get(
         f"{base}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
-        f"?head_sha={sha}&per_page=1",
+        f"?head_sha={sha}&status=completed&per_page=1",
         headers,
     ).get("workflow_runs") or []
     if not runs:
-        return {"status": "exception", "reason": f"no GHA run of {workflow} for commit {sha[:8]}"}
+        return {
+            "status": "exception",
+            "reason": f"no completed GHA run of {workflow} for commit {sha[:8]}",
+        }
     run = runs[0]
 
     artifacts = _get(
@@ -183,15 +198,18 @@ def gha_facts(repo: str, workflow: str, sha: str, token: str) -> dict:
     ).get("artifacts") or []
 
     tests = 0
+    measured = False
     for artifact in artifacts:
         if "test" not in artifact["name"].lower():
             continue
         try:
-            tests += _count_junit_tests(
+            found, ok = _count_tests(
                 _get(artifact["archive_download_url"], headers, binary=True)
             )
         except (RuntimeError, zipfile.BadZipFile):
             continue
+        tests += found
+        measured = measured or ok
 
     return {
         "status": "ok",
@@ -199,7 +217,7 @@ def gha_facts(repo: str, workflow: str, sha: str, token: str) -> dict:
         "url": run.get("html_url", ""),
         "result": run.get("conclusion") or run.get("status") or "unknown",
         "commit": run.get("head_sha", ""),
-        "tests_total": tests,
+        "tests_total": tests if measured else None,
         "artifacts": sorted(a["name"] for a in artifacts),
     }
 
@@ -241,17 +259,33 @@ def compare(service: str, sha: str, ado: dict, gha: dict) -> tuple[str, str]:
         ]
         return "EXCEPTION", "\n".join(lines)
 
+    unmeasured = gha["tests_total"] is None
+    missing_artifacts = [n for n in ado["artifacts"] if n not in gha["artifacts"]]
+
     rows = [
         ("Result", ado["result"], gha["result"], _normalise(ado["result"]) == _normalise(gha["result"])),
-        ("Tests run", str(ado["tests_total"]), str(gha["tests_total"]), ado["tests_total"] == gha["tests_total"]),
-        ("Artifacts", str(len(ado["artifacts"])), str(len(gha["artifacts"])), len(ado["artifacts"]) == len(gha["artifacts"])),
+        (
+            "Tests run",
+            str(ado["tests_total"]),
+            "not measured" if unmeasured else str(gha["tests_total"]),
+            None if unmeasured else ado["tests_total"] == gha["tests_total"],
+        ),
+        (
+            "Build artifacts",
+            ", ".join(ado["artifacts"]) or "none",
+            "all present" if not missing_artifacts else f"missing {', '.join(missing_artifacts)}",
+            not missing_artifacts,
+        ),
     ]
 
     lines += [
         "| Signal | Azure DevOps | GitHub Actions | Match |",
         "|--------|--------------|----------------|-------|",
     ]
-    lines += [f"| {n} | {a} | {g} | {'yes' if m else 'NO'} |" for n, a, g, m in rows]
+    lines += [
+        f"| {n} | {a} | {g} | {'unknown' if m is None else ('yes' if m else 'NO')} |"
+        for n, a, g, m in rows
+    ]
     lines += [
         "",
         f"ADO run [{ado['build_id']}]({ado['url']}) · "
@@ -262,10 +296,16 @@ def compare(service: str, sha: str, ado: dict, gha: dict) -> tuple[str, str]:
         "",
     ]
 
-    mismatched = [n for n, _, _, m in rows if not m]
+    mismatched = [n for n, _, _, m in rows if m is False]
     if mismatched:
         lines.append(f"**Outcome: MISMATCH** — {', '.join(mismatched)} differ; remediation required.")
         return "MISMATCH", "\n".join(lines)
+    if unmeasured:
+        lines.append(
+            "**Outcome: EXCEPTION** — the GitHub Actions run published no readable test "
+            "report (JUnit XML or TRX), so test parity cannot be claimed."
+        )
+        return "EXCEPTION", "\n".join(lines)
     lines.append("**Outcome: PASS** — measured from both live runs, not from a stored baseline.")
     return "PASS", "\n".join(lines)
 
