@@ -110,7 +110,7 @@ ADO implicitly checks out the repository for the build job. The GHA build and de
 - **Working directory:** `services/risk-batch` is the GHA working directory because the templates use root-relative `src/` and `tests/`, while `requirementsFile` points into the service directory.
 - **Working directory vs `projectDirectory`:** `main`'s templates now take a `projectDirectory: services/risk-batch` parameter; the `staging/preprod` templates do not. The job-level `working-directory: services/risk-batch` gives the same effect.
 - **Pre-existing duplicate test run:** The retry-enabled pytest run in `build-python.yml` and the plain pytest run in `run-tests.yml` are both preserved.
-- **Test baseline:** `validation/baselines/risk-batch/test-counts.json` does not exist, so the validator's **Test Baseline** check fails. A local run of `pytest tests/` in `services/risk-batch` reports 6 passed / 0 failed / 0 skipped; the baseline file is deliberately not added by this PR so its owners can decide the source of truth.
+- **Test baseline:** `validation/baselines/risk-batch/test-counts.json` (measured from ADO build 34) expects 12 tests — the same 6-test suite run twice, once per pytest step. This is why both pytest runs must stay.
 - **Deployment checkout:** ADO deployment jobs do not check out source, but `release-standard.yml` references `$(Build.SourcesDirectory)/build-tools`. GHA checks out explicitly in `deploy_dev`.
 - **R2:** `staging/preprod` is unmaintained. Its retry loop and preprod stamp are now inlined, so the GHA workflow has no branch dependency.
 - **R4:** `services/risk-batch/pipeline-fragments/build-python-local.yml` is unreferenced by pipeline 104 and was not used.
@@ -135,6 +135,5 @@ The GitHub environment `dev` must exist (R5).
 | Check | Result |
 | --- | --- |
 | `actionlint` | Clean |
-| `validation/scripts/validate_migration.py` | 85% (6/7) |
+| `validation/scripts/validate_migration.py` | 100% (7/7) |
 | `risk-batch-ci` build job on the PR | Green (lint, both pytest runs, sdist/wheel, uploads) |
-| Failing check | **Test Baseline** only: `validation/baselines/risk-batch/test-counts.json` is absent; see the Test baseline gap above |
