@@ -84,42 +84,22 @@ jobs:
       # --- mapped from: Maven@4 (build-java.yml @ main: goals 'clean package', mavenPomFile 'pom.xml') ---
       - name: Maven clean package
         if: matrix.template_branch == 'main'
-        run: |
-          if [[ ! -f pom.xml ]]; then
-            echo "No pom.xml found; skipping Maven clean package."
-            exit 0
-          fi
-          mvn -f pom.xml $MAVEN_OPTIONS clean package
+        run: mvn -f pom.xml $MAVEN_OPTIONS clean package
 
       # --- mapped from: Maven@4 (build-java.yml @ master: goals 'package', mavenPomFile '${{ parameters.projectDirectory }}/pom.xml' = './pom.xml') ---
       - name: Maven package
         if: matrix.template_branch == 'master'
-        run: |
-          if [[ ! -f ./pom.xml ]]; then
-            echo "No pom.xml found; skipping Maven package."
-            exit 0
-          fi
-          mvn -f ./pom.xml $MAVEN_OPTIONS package
+        run: mvn -f ./pom.xml $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 (build-java.yml @ staging/preprod: goals 'package', mavenPomFile 'pom.xml') ---
       - name: Maven package (staging/preprod)
         if: matrix.template_branch == 'staging/preprod'
-        run: |
-          if [[ ! -f pom.xml ]]; then
-            echo "No pom.xml found; skipping Maven package."
-            exit 0
-          fi
-          mvn -f pom.xml $MAVEN_OPTIONS package
+        run: mvn -f pom.xml $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 (build-java.yml @ staging/release-hardening: goals 'package', mavenPomFile 'pom.xml') ---
       - name: Maven package (staging/release-hardening)
         if: matrix.template_branch == 'staging/release-hardening'
-        run: |
-          if [[ ! -f pom.xml ]]; then
-            echo "No pom.xml found; skipping Maven package."
-            exit 0
-          fi
-          mvn -f pom.xml $MAVEN_OPTIONS package
+        run: mvn -f pom.xml $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 publishJUnitResults: true, testResultsFiles '**/surefire-reports/TEST-*.xml' ---
       - name: Collect JUnit test results
