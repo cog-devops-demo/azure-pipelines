@@ -2,9 +2,15 @@
   "service": "market-sim",
   "expected_test_suites": 1,
   "expected_total_tests": 4,
+  "expected_passed_tests": 4,
   "minimum_pass_rate": 1.0,
-  "expected_coverage_percent": null,
-  "frameworks": ["cargo test"],
-  "measured_from": "cargo test -- --test-threads=1 in services/market-sim (lib unittests 4 passed, bin unittests 0, doc-tests 0), measured 2026-09-09 in the earlier migration attempt (PR #3) against the scaffold in COG-GTM/azure-pipelines#12. Re-measure once the crate lands on this branch.",
+  "frameworks": [
+    "cargo-test"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "`cargo test` output in build log (Run tests)",
+  "ado_build_id": 31,
+  "ado_commit": "b00a483a",
   "last_updated": "2026-09-09"
 }

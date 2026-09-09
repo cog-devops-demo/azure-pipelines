@@ -1,0 +1,16 @@
+{
+  "service": "frontend-workbench",
+  "expected_test_suites": 1,
+  "expected_total_tests": 4,
+  "expected_passed_tests": 4,
+  "minimum_pass_rate": 1.0,
+  "frameworks": [
+    "node-test"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "node:test TAP summary in build log (Run tests)",
+  "ado_build_id": 35,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09"
+}
