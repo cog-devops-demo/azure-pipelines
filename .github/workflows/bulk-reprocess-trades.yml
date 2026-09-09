@@ -1,0 +1,106 @@
+# bulk-reprocess-trades workflow
+# Migrated from: adhoc/bulk-reprocess-trades.yml (ADO pipeline ID 115)
+# Stack: Python 3.11 (pandas, requests, pyarrow)
+# Original template source: none — fully inline ADO YAML (Category 6, ad-hoc / manual)
+#
+# ADO templates inlined:
+#   - (none)
+#
+# Runner note (inventory risk R15): the ADO job declares timeoutInMinutes: 480
+# and averages ~325 min per run. GitHub-hosted runners cap a job at 360 min, so
+# this workflow targets a self-hosted runner. See
+# docs/migration/bulk-reprocess-trades-ado-to-gha-mapping.md for the
+# alternative of re-homing this as a batch job.
+
+name: bulk-reprocess-trades
+
+# --- mapped from: trigger: none + parameters: (manual run with runtime parameters) ---
+on:
+  workflow_dispatch:
+    inputs:
+      startDate:
+        description: 'Start of the trade date range to reprocess (YYYY-MM-DD)'
+        type: string
+        required: true
+        default: '2024-01-01'
+      endDate:
+        description: 'End of the trade date range to reprocess (YYYY-MM-DD)'
+        type: string
+        required: true
+        default: '2024-01-31'
+      tradeTypes:
+        description: 'Trade types to reprocess (or "all")'
+        type: string
+        required: true
+        default: 'all'
+
+permissions:
+  contents: read
+
+# --- mapped from: $(Build.*) predefined variables (env shims) ---
+env:
+  BUILD_SOURCEBRANCH: ${{ github.ref }}
+  BUILD_SOURCEVERSION: ${{ github.sha }}
+  BUILD_BUILDID: ${{ github.run_id }}
+  BUILD_SOURCESDIRECTORY: ${{ github.workspace }}
+  BUILD_REQUESTEDFOR: ${{ github.actor }}
+  BUILD_DEFINITIONNAME: ${{ github.workflow }}
+  PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # --- mapped from: job ReprocessTrades ('Bulk reprocess trades') ---
+  reprocess-trades:
+    name: Bulk reprocess trades
+    # --- mapped from: pool vmImage ubuntu-latest (self-hosted required — 480 min > 360 min hosted limit) ---
+    runs-on: self-hosted
+    # --- mapped from: timeoutInMinutes: 480 ---
+    timeout-minutes: 480
+    steps:
+      # --- mapped from: implicit ADO checkout step ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory) (fresh runner — directory must exist) ---
+      - name: Create artifact staging directory
+        run: |
+          STAGING="$RUNNER_TEMP/staging"
+          mkdir -p "$STAGING/reprocessed"
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$STAGING" >> "$GITHUB_ENV"
+
+      # --- mapped from: UsePythonVersion@0 (versionSpec: '3.11') ---
+      - name: Use Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # --- mapped from: script 'Install dependencies' ---
+      - name: Install dependencies
+        run: |
+          pip install pandas requests pyarrow
+
+      # --- mapped from: script 'Reprocess trades' (timeoutInMinutes: 420) ---
+      - name: Reprocess trades
+        timeout-minutes: 420
+        env:
+          START_DATE: ${{ inputs.startDate }}
+          END_DATE: ${{ inputs.endDate }}
+          TRADE_TYPES: ${{ inputs.tradeTypes }}
+          # --- mapped from: variable group 'internal-network-credentials' (id 207) ---
+          INTERNAL_NETWORK_CREDENTIALS: ${{ secrets.INTERNAL_NETWORK_CREDENTIALS }}
+        run: |
+          echo "Reprocessing trades from $START_DATE to $END_DATE"
+          echo "Trade types: $TRADE_TYPES"
+          python adhoc/scripts/reprocess_trades.py \
+            --start-date "$START_DATE" \
+            --end-date "$END_DATE" \
+            --types "$TRADE_TYPES" \
+            --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/reprocessed/"
+
+      # --- mapped from: PublishBuildArtifacts@1 ('Archive reprocessed data', artifactName: reprocessed-trades) ---
+      - name: Archive reprocessed data
+        uses: actions/upload-artifact@v4
+        with:
+          name: reprocessed-trades
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: warn
