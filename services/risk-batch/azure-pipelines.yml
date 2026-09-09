@@ -37,11 +37,13 @@ stages:
             parameters:
               pythonVersion: '3.11'
               requirementsFile: 'services/risk-batch/requirements.txt'
+              projectDirectory: 'services/risk-batch'
               artifactName: $(artifactName)
 
           - template: templates/test/run-tests.yml@templates
             parameters:
               testFramework: 'pytest'
+              projectDirectory: 'services/risk-batch'
 
   - template: templates/release/release-standard.yml@templates
     parameters:
