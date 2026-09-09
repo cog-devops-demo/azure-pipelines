@@ -26,8 +26,8 @@ branch-drift entanglement and could be ported directly.
 - Template repo `danagajewski-demo/shared-ci-platform` has all eight branches from the
   inventory; the pipeline pins `main` (`067a3c2f`).
 - **Template drift vs. this repo:** `build-dotnet.yml` on ADO `main` restores with
-  `DotNetCoreCLI@2 restore`; the copy in this repo still uses
-  `NuGetToolInstaller@1` + `NuGetCommand@2`. Run 5 failed on exactly that
+  `DotNetCoreCLI@2 restore`; the copy in this repo used
+  `NuGetToolInstaller@1` + `NuGetCommand@2` until #25 synced it. Run 5 failed on exactly that
   (`NuGetCommand@2` needs mono on ubuntu-24.04); the template was fixed on ADO `main`
   and run 11 passed. The workflow follows the live template (`dotnet restore`).
 - Runs: 5 failed (NuGet/mono), 11 succeeded (branch with the .NET scaffold),
@@ -121,9 +121,8 @@ re-baselining, not a workflow change.
 
 ## Gaps and follow-ups
 
-1. **No source on `main`.** Both the ADO pipeline and this workflow fail at restore on
-   `main`. Land the service source (the scaffold in `d23e86d`) or point the pipeline at
-   the repo that has it.
+1. ~~No source on `main`~~ — resolved by #25, which restored the `d23e86d` scaffold
+   (ADO run 15 predates it).
 2. **`dev` environment + required reviewers** must be created in GitHub before the
    `deploy-dev` job gates as the ADO approval check did.
 3. **Test results publishing.** ADO's `PublishTestResults@2` had nothing to publish
@@ -134,6 +133,5 @@ re-baselining, not a workflow change.
    includes `pricing-engine-drop-manifest.json`; in ADO it was left on the agent.
    Consumers that enumerate the drop should expect one extra JSON file.
 5. **Ownership** is still `unknown` (inventory R1); `shared-ci-platform` best-effort.
-6. Local template copy `templates/build/build-dotnet.yml` is behind ADO `main`
-   (NuGet vs. `dotnet restore`) — sync it or drop it once templates become reusable
-   workflows.
+6. ~~Local template copy `templates/build/build-dotnet.yml` is behind ADO `main`~~ —
+   synced in #25.
