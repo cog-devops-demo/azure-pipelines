@@ -72,6 +72,11 @@ be exercised by a later matching service change or by `workflow_dispatch`.
 | 5 | `script` "Stage build artifacts" (`cp target/*.jar\|*.war $(Build.ArtifactStagingDirectory)/`) | Same copies into `${{ runner.temp }}/staging` after `mkdir -p` | Runner temp replaces the ADO staging directory. |
 | 6 | `PublishBuildArtifacts@1` pathToPublish=staging dir, artifactName=`portfolio-api-dist` | `actions/upload-artifact@v4` name=`portfolio-api-dist` | `if-no-files-found: error` makes an empty distribution fail the build. |
 | 7 | `script` "Register artifact in artifact-registry" → `publish_artifact.py --registry artifact-registry` | Same display name and registry argument, push-only | R6 credentials are passed from GitHub secrets. |
+| 8 | Registration manifest produced by `publish_artifact.py` | `actions/upload-artifact@v4` `portfolio-api-registration-manifest`, push-only | Added during migration so the generated manifest is retained with the run. |
+
+The registration manifest upload is an added migration step; the ADO task wrote
+the manifest to its staging directory but did not publish it as a separate
+retained artifact.
 
 ### Deploy job (`templates/release/release-standard.yml`)
 

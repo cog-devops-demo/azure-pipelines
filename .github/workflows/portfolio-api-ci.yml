@@ -123,6 +123,15 @@ jobs:
             --registry artifact-registry \
             --build-id "${{ github.run_id }}"
 
+      # --- mapped from: script 'Register artifact in artifact-registry' (manifest written by publish_artifact.py; retained as a run artifact) ---
+      - name: Upload registration manifest
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-api-registration-manifest
+          path: ${{ runner.temp }}/staging/portfolio-api-dist-manifest.json
+          if-no-files-found: error
+
   # --- mapped from: stage Release ('Release to staging', dependsOn: Build) -> templates/release/release-standard.yml ---
   #     => stage Deploy_staging / deployment job 'deploy' (environment: staging, strategy: runOnce) ---
   deploy-staging:
