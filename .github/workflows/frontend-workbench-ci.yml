@@ -55,6 +55,8 @@ jobs:
   # --- mapped from: stage Build / job build (alt-templates/frontend/frontend-build.yml@team/frontend-custom) ---
   build:
     name: Build frontend-workbench
+    outputs:
+      service_changed: ${{ steps.changes.outputs.service_changed }}
     # --- mapped from: pool.vmImage ubuntu-latest ---
     runs-on: ubuntu-latest
     defaults:
@@ -64,6 +66,22 @@ jobs:
     steps:
       # --- mapped from: implicit ADO checkout ---
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --- mapped from: trigger.paths.include (deploy stages only ran when services/frontend-workbench/** changed) ---
+      - name: Detect service changes
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "service_changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$SERVICE_DIR"; then
+            echo "service_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "service_changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # --- mapped from: NodeTool@0 (versionSpec 18.x) ---
       - name: Install Node.js 18.x
@@ -119,7 +137,7 @@ jobs:
   deploy_frontend_dev:
     name: Deploy frontend to dev
     needs: build
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && needs.build.outputs.service_changed == 'true'
     # --- mapped from: deployment job pool.vmImage ubuntu-latest ---
     runs-on: ubuntu-latest
     # --- mapped from: deployment job `environment: '${{ parameters.environment }}-frontend'` (ADO env dev-frontend, no checks) ---
@@ -172,8 +190,8 @@ jobs:
   # The staging-frontend environment's approval check is the only promotion gate, as in ADO.
   deploy_frontend_staging:
     name: Deploy frontend to staging
-    needs: deploy_frontend_dev
-    if: github.event_name == 'push'
+    needs: [build, deploy_frontend_dev]
+    if: github.event_name == 'push' && needs.build.outputs.service_changed == 'true'
     # --- mapped from: deployment job pool.vmImage ubuntu-latest ---
     runs-on: ubuntu-latest
     # --- mapped from: deployment job `environment: 'staging-frontend'` (ADO approval check: 1 team-frontend approver) ---

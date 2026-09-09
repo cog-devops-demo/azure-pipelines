@@ -75,8 +75,8 @@ Stages 2 and 3 declare no `dependsOn` or `condition`, so ADO runs them sequentia
 | ADO stage | ADO job | GHA job | `needs` | `if` | `environment` |
 |---|---|---|---|---|---|
 | `Build` ("Build frontend-workbench") | `build` | `build` | — | — | — |
-| `DeployFrontend_dev` ("Deploy frontend to dev") | `deploy_frontend` (deployment) | `deploy_frontend_dev` | `build` | `github.event_name == 'push'` | `dev-frontend` |
-| `DeployFrontend_staging` ("Deploy frontend to staging") | `deploy_frontend` (deployment) | `deploy_frontend_staging` | `deploy_frontend_dev` | `github.event_name == 'push'` | `staging-frontend` |
+| `DeployFrontend_dev` ("Deploy frontend to dev") | `deploy_frontend` (deployment) | `deploy_frontend_dev` | `build` | `github.event_name == 'push' && needs.build.outputs.service_changed == 'true'` | `dev-frontend` |
+| `DeployFrontend_staging` ("Deploy frontend to staging") | `deploy_frontend` (deployment) | `deploy_frontend_staging` | `[build, deploy_frontend_dev]` | `github.event_name == 'push' && needs.build.outputs.service_changed == 'true'` | `staging-frontend` |
 
 ## Task / step mapping
 
@@ -112,6 +112,7 @@ Stages 2 and 3 declare no `dependsOn` or `condition`, so ADO runs them sequentia
 |---|---|
 | implicit `succeeded()` on stage order (`Build` → `DeployFrontend_dev` → `DeployFrontend_staging`) | `needs:` chain (`build` → `deploy_frontend_dev` → `deploy_frontend_staging`) |
 | none on either deploy stage | `if: github.event_name == 'push'` — only needed because `pull_request` was added |
+| trigger.paths (deploy stages implicitly only ran on service changes) | build.outputs.service_changed gate on both deploy jobs (workflow-only pushes build but do not deploy) |
 | `${{ if eq(parameters.enableSSR, true) }}` | resolved to always-on at migration time |
 | `${{ if eq(parameters.cdnPurge, true) }}` | resolved to always-on at migration time |
 | `staging-frontend` approval check (1 × team-frontend, "Verify SSR bundle and CDN purge before promoting") | GitHub environment `staging-frontend` with a required-reviewers protection rule (must be configured in repo settings) |
@@ -140,7 +141,7 @@ No `build-tools/scripts/` helper is called by this pipeline, so **no helper-scri
 | G6 | ~~services/frontend-workbench/ contained only the ADO YAML~~ — resolved: the runnable Node scaffold (package.json, scripts/, tests/) now exists on main; the build job runs for real. | Resolved |
 | G7 | ADO's `feature/*` push previously also deployed to dev without approval; identical in GHA (`dev-frontend` has no protection rules). | Pre-existing |
 | G8 | `validation/baselines/frontend-workbench/` does not exist, so the migration validator reports **Artifact Baseline: FAIL** and **Test Baseline: FAIL** ("No … baseline found"). The baseline must come from a real ADO run of pipeline 106 (artifact listing + test-result summary); it has not been invented here. | Requires team-frontend / platform to capture a baseline from ADO |
-| G9 | Trigger paths additionally include the workflow file so workflow-only changes exercise the build (deferred until the service source landed on main; now enabled). | Intentional |
+| G9 | Trigger paths additionally include the workflow file so workflow-only changes exercise the build (deferred until the service source landed on main; now enabled). Workflow-only pushes build only and never deploy. | Intentional |
 
 ## Required GitHub configuration
 
