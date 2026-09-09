@@ -1,0 +1,111 @@
+# attestation-backfill-weekly workflow
+# Migrated from: night-jobs/compliance/attestation-backfill.yml (ADO pipeline ID 114)
+# Stack: Python 3.11 (requests, pandas)
+# Original template source: none — fully inline ADO YAML
+#
+# ADO templates inlined:
+#   - (none; the pipeline consumed no shared templates)
+#
+# Category 5 (non-build workload) override: the inventory disposition for
+# ADO 114 is "Migrate to GHA" — the only non-build job with a clear owner
+# (shared-ci-platform) and a modest footprint (avg 93 min). Confirmed by the
+# requester; see docs/migration/attestation-backfill-weekly-ado-to-gha-mapping.md.
+#
+# Runner: self-hosted `linux-build-workers` (R14 — needs network access to
+# the attestation-database / compliance-store). Artifact retention 365 days (R10).
+
+name: attestation-backfill-weekly
+
+on:
+  # --- mapped from: schedules[0].cron '0 3 * * 0' (always: true, branch main) ---
+  schedule:
+    - cron: '0 3 * * 0'
+  # ADO had trigger: none; workflow_dispatch gives operators a manual re-run path.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attestation-backfill-weekly
+  cancel-in-progress: false
+
+jobs:
+  # --- mapped from: job BackfillAttestations ('Backfill missing attestations') ---
+  backfill-attestations:
+    name: Backfill missing attestations
+    # --- mapped from: pool.name 'linux-build-workers' + demands Agent.OS -equals Linux ---
+    runs-on: [self-hosted, linux-build-workers]
+    # --- mapped from: timeoutInMinutes: 180 ---
+    timeout-minutes: 180
+    env:
+      # --- mapped from: variable group compliance-store-credentials (id 206) ---
+      COMPLIANCE_STORE_TOKEN: ${{ secrets.COMPLIANCE_STORE_TOKEN }}
+    steps:
+      # --- mapped from: implicit ADO checkout ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: UsePythonVersion@0 (versionSpec 3.11) ---
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # --- mapped from: script 'Install dependencies' ---
+      - name: Install dependencies
+        run: pip install requests pandas
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory) (created implicitly by the ADO agent) ---
+      - name: Prepare staging directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          echo "STAGING_DIR=$RUNNER_TEMP/staging" >> "$GITHUB_ENV"
+
+      # --- mapped from: script 'Scan for attestation gaps' ---
+      - name: Scan for attestation gaps
+        run: |
+          echo "Scanning attestation-database for gaps..."
+          python night-jobs/compliance/scripts/scan_attestation_gaps.py \
+            --store attestation-database \
+            --lookback-days 30 \
+            --output "$STAGING_DIR/gaps.json"
+
+      # --- mapped from: script 'Regenerate attestations' (timeoutInMinutes: 120) ---
+      - name: Regenerate attestations
+        timeout-minutes: 120
+        run: |
+          echo "Backfilling missing attestations..."
+          python night-jobs/compliance/scripts/backfill_attestations.py \
+            --gaps "$STAGING_DIR/gaps.json" \
+            --store attestation-database \
+            --dry-run false
+
+      # --- mapped from: script 'Record backfill metadata' (build-tools/compliance/generate_metadata.py) ---
+      - name: Record backfill metadata
+        env:
+          # ADO env shims read by generate_metadata.py
+          BUILD_DEFINITIONNAME: ${{ github.workflow }}
+          BUILD_REPOSITORY_NAME: ${{ github.repository }}
+          BUILD_SOURCEBRANCH: ${{ github.ref }}
+          BUILD_SOURCEVERSION: ${{ github.sha }}
+          AGENT_NAME: ${{ runner.name }}
+          BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ runner.temp }}/staging
+          PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python "$GITHUB_WORKSPACE/build-tools/compliance/generate_metadata.py" \
+            --artifact attestation-backfill \
+            --compliance-level standard \
+            --build-id "${{ github.run_id }}" \
+            --store attestation-database
+
+      # --- mapped from: PublishBuildArtifacts@1 'Publish backfill report' (condition: always()) ---
+      - name: Publish backfill report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attestation-backfill-report
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: warn
+          # --- mapped from: retentionRules daysToKeep 365 (R10 audit retention) ---
+          retention-days: 365
