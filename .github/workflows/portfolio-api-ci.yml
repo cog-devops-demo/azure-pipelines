@@ -72,7 +72,9 @@ jobs:
       # --- mapped from: Maven@4 (mavenPomFile=${projectDirectory}/pom.xml with projectDirectory=services/portfolio-api, goals=package, options=-B -DskipTests=false) ---
       - name: Maven ${{ env.MAVEN_GOAL }}
         working-directory: ${{ env.SERVICE_DIR }}
-        run: mvn -f pom.xml $MAVEN_OPTIONS $MAVEN_GOAL
+        run: |
+          read -r -a MAVEN_ARGS <<< "$MAVEN_OPTIONS"
+          mvn -f pom.xml "${MAVEN_ARGS[@]}" "$MAVEN_GOAL"
 
       # --- mapped from: Maven@4 publishJUnitResults=true, testResultsFiles=**/surefire-reports/TEST-*.xml ---
       # `**` is resolved with find because GHA bash has globstar off; results are kept even when tests fail.
