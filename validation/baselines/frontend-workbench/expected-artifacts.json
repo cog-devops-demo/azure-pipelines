@@ -1,0 +1,20 @@
+{
+  "artifact_name": "frontend-workbench-bundle",
+  "service": "frontend-workbench",
+  "expected_file_count": 1,
+  "expected_file_types": [
+    ".zip"
+  ],
+  "expected_contents": [
+    "frontend-workbench-bundle.zip"
+  ],
+  "observed_artifact_size_bytes": 1547,
+  "min_artifact_size_mb": 0.0008,
+  "max_artifact_size_mb": 0.003,
+  "status": "observed",
+  "source": "azure-devops-run",
+  "ado_build_id": 35,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09",
+  "updated_by": "ado-run-capture"
+}

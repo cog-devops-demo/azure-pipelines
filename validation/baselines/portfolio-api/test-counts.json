@@ -1,0 +1,16 @@
+{
+  "service": "portfolio-api",
+  "expected_test_suites": 1,
+  "expected_total_tests": 5,
+  "expected_passed_tests": 5,
+  "minimum_pass_rate": 1.0,
+  "frameworks": [
+    "junit"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "ADO test run JUnit_TestResults_33",
+  "ado_build_id": 33,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09"
+}
