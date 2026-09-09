@@ -108,9 +108,9 @@ ADO implicitly checks out the repository for the build job. The GHA build and de
 
 - **PyPI dependency:** `pytest-junitxml` in the ADO template does not exist on PyPI. `pip index versions` was verified to return no matching distribution, so it is dropped; JUnit XML output is built into pytest. The ADO step would fail at `pip install`.
 - **Working directory:** `services/risk-batch` is the GHA working directory because the templates use root-relative `src/` and `tests/`, while `requirementsFile` points into the service directory.
-- **Service scaffold:** `services/risk-batch` currently has no `requirements.txt`, `src/`, or `tests/` on `main`. The workflow, like the ADO pipeline, cannot run green until the service scaffold exists.
+- **Working directory vs `projectDirectory`:** `main`'s templates now take a `projectDirectory: services/risk-batch` parameter; the `staging/preprod` templates do not. The job-level `working-directory: services/risk-batch` gives the same effect.
 - **Pre-existing duplicate test run:** The retry-enabled pytest run in `build-python.yml` and the plain pytest run in `run-tests.yml` are both preserved.
-- **Test baseline:** `validation/baselines/risk-batch/test-counts.json` does not exist, so the validator's **Test Baseline** check fails. Counts must be measured from a real run once the service code exists; they are not invented here.
+- **Test baseline:** `validation/baselines/risk-batch/test-counts.json` does not exist, so the validator's **Test Baseline** check fails. A local run of `pytest tests/` in `services/risk-batch` reports 6 passed / 0 failed / 0 skipped; the baseline file is deliberately not added by this PR so its owners can decide the source of truth.
 - **Deployment checkout:** ADO deployment jobs do not check out source, but `release-standard.yml` references `$(Build.SourcesDirectory)/build-tools`. GHA checks out explicitly in `deploy_dev`.
 - **R2:** `staging/preprod` is unmaintained. Its retry loop and preprod stamp are now inlined, so the GHA workflow has no branch dependency.
 - **R4:** `services/risk-batch/pipeline-fragments/build-python-local.yml` is unreferenced by pipeline 104 and was not used.
@@ -136,4 +136,5 @@ The GitHub environment `dev` must exist (R5).
 | --- | --- |
 | `actionlint` | Clean |
 | `validation/scripts/validate_migration.py` | 85% (6/7) |
+| `risk-batch-ci` build job on the PR | Green (lint, both pytest runs, sdist/wheel, uploads) |
 | Failing check | **Test Baseline** only: `validation/baselines/risk-batch/test-counts.json` is absent; see the Test baseline gap above |
