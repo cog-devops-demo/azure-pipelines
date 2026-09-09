@@ -1,0 +1,18 @@
+{
+  "artifact_name": "market-sim-binary",
+  "service": "market-sim",
+  "expected_file_count": 1,
+  "expected_file_types": [],
+  "expected_contents": [
+    "market-sim"
+  ],
+  "observed_artifact_size_bytes": 486168,
+  "min_artifact_size_mb": 0.2318,
+  "max_artifact_size_mb": 0.9272,
+  "status": "observed",
+  "source": "azure-devops-run",
+  "ado_build_id": 31,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09",
+  "updated_by": "ado-run-capture"
+}
