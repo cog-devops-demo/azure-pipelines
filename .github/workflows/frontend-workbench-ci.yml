@@ -21,6 +21,7 @@ name: frontend-workbench-ci
 # --- mapped from: trigger.branches.include / trigger.paths.include ---
 # ADO `feature/*` is single-level; GHA `feature/**` is recursive (intentional broadening).
 # pull_request is an addition — the ADO pipeline had no PR trigger.
+# The workflow file is included so workflow-only revisions run.
 on:
   push:
     branches:
@@ -28,11 +29,13 @@ on:
       - 'feature/**'
     paths:
       - 'services/frontend-workbench/**'
+      - '.github/workflows/frontend-workbench-ci.yml'
   pull_request:
     branches:
       - main
     paths:
       - 'services/frontend-workbench/**'
+      - '.github/workflows/frontend-workbench-ci.yml'
 
 permissions:
   contents: read
