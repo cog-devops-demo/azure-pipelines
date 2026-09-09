@@ -379,6 +379,11 @@ def _absent(facts: dict) -> bool:
     return "no ADO pipeline" not in facts["reason"]
 
 
+def _terminal(facts: dict) -> bool:
+    """True for an exception no amount of waiting can resolve."""
+    return facts["status"] != "ok" and not facts.get("pending") and not _absent(facts)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ADO ↔ GHA runtime parity report")
     parser.add_argument("--service", required=True)
@@ -421,6 +426,8 @@ def main() -> int:
             )
             gha = gha_facts(args.gh_repo, args.gh_workflow, args.sha, token)
             now = time.monotonic()
+            if _terminal(ado) or _terminal(gha):
+                break
             waiting = _pending(ado) or _pending(gha) or (
                 # a run either system is about to create is not visible instantly
                 (_absent(ado) or _absent(gha)) and now - started < GRACE_SECONDS
