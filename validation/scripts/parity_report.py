@@ -32,6 +32,7 @@ from io import BytesIO
 
 TIMEOUT = 30
 POLL_INTERVAL = 20
+GRACE_SECONDS = 90  # how long a run may take to show up in either API at all
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +369,16 @@ def _pending(facts: dict) -> bool:
     return bool(facts.get("pending"))
 
 
+def _absent(facts: dict) -> bool:
+    """True when no matching run is visible yet, which may just be API lag.
+
+    A pipeline that does not exist at all is excluded: waiting cannot help it.
+    """
+    if facts["status"] == "ok" or facts.get("pending"):
+        return False
+    return "no ADO pipeline" not in facts["reason"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ADO ↔ GHA runtime parity report")
     parser.add_argument("--service", required=True)
@@ -401,14 +412,20 @@ def main() -> int:
         )
         return 0
 
-    deadline = time.monotonic() + args.wait_seconds
+    started = time.monotonic()
+    deadline = started + args.wait_seconds
     try:
         while True:
             ado = ado_facts(
                 args.ado_org, args.ado_project, args.ado_pipeline, args.sha, ado_headers, args.pr
             )
             gha = gha_facts(args.gh_repo, args.gh_workflow, args.sha, token)
-            if not (_pending(ado) or _pending(gha)) or time.monotonic() >= deadline:
+            now = time.monotonic()
+            waiting = _pending(ado) or _pending(gha) or (
+                # a run either system is about to create is not visible instantly
+                (_absent(ado) or _absent(gha)) and now - started < GRACE_SECONDS
+            )
+            if not waiting or now >= deadline:
                 break
             time.sleep(POLL_INTERVAL)
     except RuntimeError as error:
