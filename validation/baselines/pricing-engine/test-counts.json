@@ -1,9 +1,16 @@
 {
   "service": "pricing-engine",
-  "expected_test_suites": 4,
-  "expected_total_tests": 187,
-  "minimum_pass_rate": 0.95,
-  "expected_coverage_percent": 72,
-  "frameworks": ["xunit"],
-  "last_updated": "2024-08-15"
+  "expected_test_suites": 1,
+  "expected_total_tests": 36,
+  "expected_passed_tests": 36,
+  "minimum_pass_rate": 1.0,
+  "frameworks": [
+    "xunit"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "ADO test run VSTest_TestResults_30",
+  "ado_build_id": 30,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09"
 }
