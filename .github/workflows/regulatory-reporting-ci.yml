@@ -1,0 +1,211 @@
+# regulatory-reporting-ci CI workflow
+# Migrated from: services/regulatory-reporting/azure-pipelines.yml (ADO pipeline ID 107)
+# Stack: Python 3.11
+# Original template source: team/reporting-hotfix branch (alt-templates, owned by team-reporting)
+#   NOTE: `team/reporting-hotfix` is not present in this GitHub mirror, so the template
+#   was inlined from `main`. The hotfix-only additions (audit-trail logging, pre-build
+#   validation) could not be read and are tracked as a known gap in the mapping doc.
+#
+# ADO templates inlined:
+#   - alt-templates/team-overrides/team-build-custom.yml  (language python, complianceLevel elevated,
+#                                                          generateMetadata true (default),
+#                                                          artifactName regulatory-compliance-pkg)
+#
+# Variable groups shared-ci-secrets (VG 201), compliance-store-credentials (VG 206) and
+# regulatory-reporting-config (VG 209) are supplied via repository/environment vars + secrets.
+# See docs/migration/regulatory-reporting-ci-ado-to-gha-mapping.md.
+
+name: regulatory-reporting-ci
+
+# --- mapped from: trigger.branches / trigger.paths / schedules ---
+# pull_request is an addition — the ADO pipeline had no PR trigger.
+# ADO schedule `0 6 * * 1-5` (UTC, always: true) → GHA cron (UTC, always runs on default branch).
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/regulatory-reporting/**'
+      - '.github/workflows/regulatory-reporting-ci.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/regulatory-reporting/**'
+      - '.github/workflows/regulatory-reporting-ci.yml'
+  schedule:
+    - cron: '0 6 * * 1-5'
+
+permissions:
+  contents: read
+
+# --- mapped from: variables ---
+env:
+  COMPLIANCE_LEVEL: elevated
+  SERVICE_DIR: services/regulatory-reporting
+  # --- mapped from: $(Build.ArtifactStagingDirectory) ---
+  # (runner.* is not available at workflow level, so github.workspace/staging is used instead of runner.temp)
+  BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ github.workspace }}/staging
+  # --- mapped from: ADO predefined variables read by build-tools helper scripts ---
+  BUILD_BUILDID: ${{ github.run_id }}
+  BUILD_SOURCEBRANCH: ${{ github.ref }}
+  BUILD_SOURCEVERSION: ${{ github.sha }}
+  BUILD_DEFINITIONNAME: ${{ github.workflow }}
+  BUILD_REPOSITORY_NAME: ${{ github.repository }}
+  BUILD_SOURCESDIRECTORY: ${{ github.workspace }}
+  PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  # --- mapped from: variable group shared-ci-secrets (VG 201) ---
+  PIP_INDEX_URL: ${{ vars.PIP_INDEX_URL }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # --- mapped from: stage ComplianceBuild / job build
+  #                  (alt-templates/team-overrides/team-build-custom.yml@team/reporting-hotfix) ---
+  compliance_build:
+    name: Build compliance package
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- mapped from: script 'Log compliance context' ---
+      - name: Log compliance context
+        run: |
+          echo "Build initiated with compliance level: $COMPLIANCE_LEVEL"
+          echo "Language: python"
+
+      # --- mapped from: UsePythonVersion@0 (versionSpec 3.11) ---
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # --- mapped from: script 'Build and test (Python)' (`${{ if eq(parameters.language, 'python') }}`) ---
+      # Runs from the repo root exactly as the ADO template does (template paths are not service-scoped).
+      - name: Build and test (Python)
+        run: |
+          pip install -r requirements.txt
+          pytest tests/ -v
+          python setup.py sdist bdist_wheel
+
+      # --- mapped from: script 'Generate compliance metadata'
+      #                  (`${{ if eq(parameters.generateMetadata, true) }}`, build-tools/compliance/generate_metadata.py) ---
+      # Writes to attestation-database; guarded so PR builds never register compliance records.
+      - name: Generate compliance metadata
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        env:
+          # --- mapped from: $(Agent.Name) / $(Agent.OS) ---
+          AGENT_NAME: ${{ runner.name }}
+          AGENT_OS: ${{ runner.os }}
+          COMPLIANCE_STORE_URL: ${{ vars.COMPLIANCE_STORE_URL }}
+          COMPLIANCE_STORE_TOKEN: ${{ secrets.COMPLIANCE_STORE_TOKEN }}
+          COMPLIANCE_STORE_CERT_THUMBPRINT: ${{ secrets.COMPLIANCE_STORE_CERT_THUMBPRINT }}
+        run: |
+          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+          python "$BUILD_SOURCESDIRECTORY/build-tools/compliance/generate_metadata.py" \
+            --artifact regulatory-compliance-pkg \
+            --compliance-level "$COMPLIANCE_LEVEL" \
+            --build-id "$BUILD_BUILDID" \
+            --store attestation-database
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory),
+      #                  artifactName regulatory-compliance-pkg) ---
+      # retention-days 365 mirrors the ADO 365-day audit retention rule (R10).
+      - name: Publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: regulatory-compliance-pkg
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
+          retention-days: 365
+          if-no-files-found: warn
+
+  # --- mapped from: stage GenerateReports / job reports (dependsOn ComplianceBuild, timeoutInMinutes 90) ---
+  # ADO `prod` environment (2 approvers + business hours + exclusive lock, R5) → GHA environment `prod`
+  # with required reviewers; the exclusive lock is the `concurrency` group below. Business-hours is a
+  # known gap (no GHA equivalent). PR builds skip this job so PR runs never hit the prod gate or
+  # upload to attestation-database.
+  generate_reports:
+    name: Generate regulatory reports
+    needs: compliance_build
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: prod
+    concurrency:
+      group: regulatory-reporting-prod
+      cancel-in-progress: false
+    env:
+      # --- mapped from: variable group compliance-store-credentials (VG 206) ---
+      COMPLIANCE_STORE_URL: ${{ vars.COMPLIANCE_STORE_URL }}
+      COMPLIANCE_STORE_TOKEN: ${{ secrets.COMPLIANCE_STORE_TOKEN }}
+      COMPLIANCE_STORE_CERT_THUMBPRINT: ${{ secrets.COMPLIANCE_STORE_CERT_THUMBPRINT }}
+      # --- mapped from: variable group regulatory-reporting-config (VG 209) ---
+      REPORTING_DB_CONNECTION_STRING: ${{ secrets.REPORTING_DB_CONNECTION_STRING }}
+      REPORTING_SMTP_SERVER: ${{ vars.REPORTING_SMTP_SERVER }}
+      REPORTING_DISTRIBUTION_LIST: ${{ vars.REPORTING_DISTRIBUTION_LIST }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- mapped from: UsePythonVersion@0 (versionSpec 3.11) ---
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # --- mapped from: script 'Install dependencies' ---
+      - name: Install dependencies
+        run: |
+          pip install -r "$SERVICE_DIR/requirements.txt"
+
+      # --- mapped from: $(Build.BuildNumber) (ADO default format yyyyMMdd.r) ---
+      # Fresh runner: the staging directory from the build job does not exist here.
+      - name: Prepare staging directory and build number
+        run: |
+          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY/reports"
+          echo "BUILD_BUILDNUMBER=$(date -u +%Y%m%d).${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      # --- mapped from: script 'Generate regulatory reports' ---
+      - name: Generate regulatory reports
+        run: |
+          python "$SERVICE_DIR/src/generate_reports.py" \
+            --output-dir "$BUILD_ARTIFACTSTAGINGDIRECTORY/reports" \
+            --compliance-level "$COMPLIANCE_LEVEL" \
+            --date "$BUILD_BUILDNUMBER"
+
+      # --- mapped from: script 'Upload compliance metadata' (build-tools/compliance/generate_metadata.py) ---
+      - name: Upload compliance metadata
+        env:
+          # --- mapped from: $(Agent.Name) ---
+          AGENT_NAME: ${{ runner.name }}
+        run: |
+          python "$BUILD_SOURCESDIRECTORY/build-tools/compliance/generate_metadata.py" \
+            --artifact regulatory-reports \
+            --compliance-level "$COMPLIANCE_LEVEL" \
+            --build-id "$BUILD_BUILDID" \
+            --store attestation-database
+
+      # --- mapped from: script 'Generate attestation record' (build-tools/scripts/generate_attestation.py) ---
+      - name: Generate attestation record
+        env:
+          # --- mapped from: $(Agent.OS) ---
+          AGENT_OS: ${{ runner.os }}
+        run: |
+          python "$BUILD_SOURCESDIRECTORY/build-tools/scripts/generate_attestation.py" \
+            --artifact regulatory-reports \
+            --env prod \
+            --build-id "$BUILD_BUILDID"
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory)/reports,
+      #                  artifactName regulatory-reports) ---
+      # Only reports/ is published, exactly as in ADO — the metadata/attestation JSON written to the
+      # staging root is not part of this artifact (pre-existing behaviour, see mapping doc).
+      - name: Publish reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: regulatory-reports
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/reports
+          retention-days: 365
+          if-no-files-found: error
