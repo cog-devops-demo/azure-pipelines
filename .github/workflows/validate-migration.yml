@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pull-requests: write
 
 jobs:
@@ -131,6 +132,7 @@ jobs:
               --baselines validation/baselines \
               --repo-root "$GITHUB_WORKSPACE")
             REPORT="${REPORT}${RESULT}"$'\n\n'
+            echo "$SERVICE|$BASE|$(basename "$wf")" >> /tmp/parity-targets.txt
           done
 
           # Full scan on manual dispatch only
@@ -163,6 +165,35 @@ jobs:
 
           FAILED=$(grep -c '| FAIL |' /tmp/validation-report.md || true)
           echo "failed_checks=$FAILED" >> "$GITHUB_OUTPUT"
+
+      - name: Runtime parity against live ADO runs
+        id: parity
+        env:
+          AZURE_DEVOPS_EXT_PAT: ${{ secrets.AZURE_DEVOPS_EXT_PAT }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ADO_ORG: ${{ vars.ADO_ORG || 'danagajewski' }}
+          ADO_PROJECT: ${{ vars.ADO_PROJECT || 'danagajewski-demo' }}
+          PARITY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          [ -f /tmp/parity-targets.txt ] || exit 0
+          MISMATCH=0
+          while IFS='|' read -r SERVICE ADO_NAME WORKFLOW_FILE; do
+            [ -n "$SERVICE" ] || continue
+            set +e
+            OUT=$(python validation/scripts/parity_report.py \
+              --service "$SERVICE" \
+              --ado-org "$ADO_ORG" \
+              --ado-project "$ADO_PROJECT" \
+              --ado-pipeline "$ADO_NAME" \
+              --gh-repo "$GITHUB_REPOSITORY" \
+              --gh-workflow "$WORKFLOW_FILE" \
+              --sha "$PARITY_SHA")
+            STATUS=$?
+            set -e
+            [ $STATUS -eq 0 ] || MISMATCH=1
+            printf '\n%s\n' "$OUT" >> /tmp/validation-report.md
+          done < /tmp/parity-targets.txt
+          echo "mismatch=$MISMATCH" >> "$GITHUB_OUTPUT"
 
       - name: Post validation report to PR
         if: github.event_name == 'pull_request'
@@ -200,13 +231,18 @@ jobs:
               });
             }
 
-      - name: Fail on lint or scorecard failures
+      - name: Fail on lint, scorecard or parity failures
         if: always() && steps.validate.outcome != 'skipped'
         env:
           LINT_EXIT: ${{ steps.lint.outputs.exit_code }}
           FAILED_CHECKS: ${{ steps.validate.outputs.failed_checks }}
+          PARITY_MISMATCH: ${{ steps.parity.outputs.mismatch }}
         run: |
           STATUS=0
+          if [ "${PARITY_MISMATCH:-0}" != "0" ]; then
+            echo "live ADO ↔ GHA parity mismatch — see the runtime parity section"
+            STATUS=1
+          fi
           if [ "${LINT_EXIT:-0}" != "0" ]; then
             echo "actionlint reported problems"
             STATUS=1
