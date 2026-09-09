@@ -1,0 +1,109 @@
+# market-sim-ci CI workflow
+# Migrated from: services/market-sim/azure-pipelines.yml (ADO pipeline ID 108)
+# Stack: Rust (stable toolchain via rustup / cargo)
+# Original template source: none — Category 4 custom inline pipeline (owner: team-quant)
+#
+# ADO templates inlined:
+#   - none (pipeline 108 consumes no shared templates; templates/build/build-rust.yml
+#     exists in this repo but is not referenced by the ADO pipeline and is not inlined)
+#
+# Mapping document: docs/migration/market-sim-ci-ado-to-gha-mapping.md
+name: market-sim-ci
+
+on:
+  # --- mapped from: trigger.branches.include [main] + trigger.paths.include [services/market-sim/**] ---
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/market-sim/**'
+  # Added during migration: the ADO pipeline had no PR trigger; this gives earlier CI feedback.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/market-sim/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# --- mapped from: variables (CARGO_TERM_COLOR, RUST_BACKTRACE) ---
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # --- mapped from: stage Build ("Build market-sim") / job build_rust ("Rust build") ---
+  build:
+    name: Build market-sim
+    # --- mapped from: pool.vmImage: ubuntu-latest ---
+    runs-on: ubuntu-latest
+    # --- mapped from: timeoutInMinutes: 30 ---
+    timeout-minutes: 30
+    defaults:
+      run:
+        # --- mapped from: workingDirectory: services/market-sim (set on every cargo step) ---
+        working-directory: services/market-sim
+    steps:
+      # --- mapped from: implicit ADO checkout step ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: script 'Install Rust' (rustup install + ##vso[task.prependpath]$HOME/.cargo/bin) ---
+      - name: Install Rust
+        working-directory: ${{ github.workspace }}
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # --- mapped from: script 'Fetch dependencies' ---
+      - name: Fetch dependencies
+        run: cargo fetch
+
+      # --- mapped from: script 'Lint with clippy' ---
+      - name: Lint with clippy
+        run: cargo clippy -- -D warnings
+
+      # --- mapped from: script 'Build release binary' ---
+      - name: Build release binary
+        run: cargo build --release
+
+      # --- mapped from: script 'Run tests' ---
+      - name: Run tests
+        run: cargo test -- --test-threads=1
+
+      # --- mapped from: script 'Stage binary' ($(Build.ArtifactStagingDirectory) -> $RUNNER_TEMP/staging) ---
+      - name: Stage binary
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          cp target/release/market-sim "$RUNNER_TEMP/staging/"
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish: $(Build.ArtifactStagingDirectory), artifactName: market-sim-binary) ---
+      - name: Publish market-sim binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-sim-binary
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: error
+
+  # --- mapped from: stage Deploy ("Deploy market-sim"), dependsOn: Build ---
+  deploy:
+    name: Deploy market-sim
+    runs-on: ubuntu-latest
+    needs: build
+    # --- mapped from: condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main')) ---
+    # succeeded() is implied by `needs`; the push-only guard keeps PR builds out of deploy.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      # --- mapped from: implicit ADO checkout step ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: script 'Deploy to cluster' ---
+      # Preserved verbatim (R13): this deployment targets a compute cluster outside the
+      # release-orchestrator (D2); the ADO stage is echo-only and so is this step.
+      - name: Deploy to cluster
+        run: |
+          echo "Deploying market-sim to compute cluster..."
+          echo "This deployment is managed outside D2"

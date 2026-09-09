@@ -1,0 +1,14 @@
+{
+  "artifact_name": "market-sim-binary",
+  "service": "market-sim",
+  "expected_file_count": 1,
+  "expected_file_types": [""],
+  "expected_contents": [
+    "market-sim"
+  ],
+  "min_artifact_size_mb": 0.1,
+  "max_artifact_size_mb": 20,
+  "measured_from": "cargo build --release of the market-sim crate (release binary 473168 bytes), measured 2026-09-09 in the earlier migration attempt (PR #3) against the scaffold in COG-GTM/azure-pipelines#12. services/market-sim on this branch holds only the ADO YAML; no artifact metadata for pipeline 108 exists in docs/samples/ado-api-responses.json. Re-measure against a real run once the crate lands here.",
+  "last_updated": "2026-09-09",
+  "updated_by": "ado-to-gha-migration (ADO pipeline 108)"
+}
