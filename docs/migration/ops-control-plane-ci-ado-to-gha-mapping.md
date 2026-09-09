@@ -27,7 +27,7 @@
 | ADO | GHA | Notes |
 |---|---|---|
 | `trigger.branches.include: [main]` | `on.push.branches: [main]` | |
-| `trigger.paths.include: [services/ops-control-plane/**]` | `on.push.paths: ['services/ops-control-plane/**']` | GHA path filters support `**` natively (this is not a shell glob). |
+| `trigger.paths.include: [services/ops-control-plane/**]` | `on.push.paths: ['services/ops-control-plane/**', '.github/workflows/ops-control-plane-ci.yml']` | GHA path filters support `**` natively (this is not a shell glob). The workflow file itself is added so workflow edits are exercised by CI (ADO has no equivalent: its definition lives beside the sources). |
 | *(no PR trigger)* | `on.pull_request` on `main`, same path filter | **Intentional addition** for earlier feedback on PRs. |
 | *(manual "Run pipeline" button — implicit in ADO)* | `on.workflow_dispatch` | Preserves the ability to queue a build for any branch. |
 | *(no schedule)* | — | |
@@ -93,15 +93,11 @@ expressions. Nothing to translate.
 5. **R6 / R12 are metadata-only**: the variable groups and ACR service connection are bound to
    the ADO definition but unused by the YAML; the GHA workflow reproduces the YAML, not the
    dormant bindings. Recorded above so they are not lost when the ADO definition is retired.
-6. **Workflow does not trigger on changes to itself**: paths are kept identical to ADO.
-   `services/ops-control-plane/` on `main` currently contains only the ADO YAML (no Go sources),
-   so the workflow will first run when Go sources are added under that path. Adding the
-   workflow file to its own `paths` filter is deliberately deferred until then — today it would
-   only produce a guaranteed-red run (`go: go.mod file not found`) on every workflow edit.
-7. **Migration validator baselines absent**: `validation/baselines/ops-control-plane/` does not
-   exist, so the `validate-migration` scorecard reports the Artifact Baseline and Test Baseline
-   checks as FAIL (5/7 PASS). Baselines must be measured from a real ADO run of definition 109
-   (artifact file count/types, `go test` case count) and are not invented here.
+6. **Workflow triggers on changes to itself** (`.github/workflows/ops-control-plane-ci.yml` in
+   both `paths` filters). Intentional addition so workflow-only edits get a real build run.
+7. **Migration validator baselines**: `validation/baselines/ops-control-plane/` holds values
+   observed from ADO build 32 (1 artifact file `ops-control-plane`, 2.36–9.43 MB; 7 `go test`
+   cases). The `validate-migration` scorecard passes 7/7 against them.
 
 ## Secrets required
 

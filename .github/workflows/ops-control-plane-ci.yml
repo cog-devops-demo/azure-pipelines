@@ -21,12 +21,14 @@ on:
       - main
     paths:
       - 'services/ops-control-plane/**'
+      - '.github/workflows/ops-control-plane-ci.yml'
   # Not present in ADO — added for earlier CI feedback on pull requests.
   pull_request:
     branches:
       - main
     paths:
       - 'services/ops-control-plane/**'
+      - '.github/workflows/ops-control-plane-ci.yml'
   # Not present in ADO — lets operators queue a build for any branch (ADO "Run pipeline").
   workflow_dispatch:
 
