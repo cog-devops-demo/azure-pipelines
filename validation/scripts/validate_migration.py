@@ -302,7 +302,11 @@ def check_baseline_artifacts(baselines_dir: str, service: str) -> dict:
     """Check if artifact baselines exist for the service."""
     path = Path(baselines_dir) / service / "expected-artifacts.json"
     if not path.exists():
-        return {"passed": False, "detail": "No artifact baseline found"}
+        return {
+            "passed": False,
+            "advisory": True,
+            "detail": "No artifact baseline found; runtime parity is the comparison",
+        }
     with open(path) as f:
         baseline = json.load(f)
     expected = baseline.get("expected_file_count")
@@ -313,11 +317,13 @@ def check_baseline_artifacts(baselines_dir: str, service: str) -> dict:
     if issues:
         return {
             "passed": False,
+            "advisory": True,
             "detail": "; ".join(issues),
             "baseline": baseline,
         }
     return {
         "passed": True,
+        "advisory": True,
         "detail": f"Baseline: {expected} files, types: {', '.join(types)}",
         "baseline": baseline,
     }
@@ -327,7 +333,11 @@ def check_baseline_tests(baselines_dir: str, service: str) -> dict:
     """Check if test baselines exist for the service."""
     path = Path(baselines_dir) / service / "test-counts.json"
     if not path.exists():
-        return {"passed": False, "detail": "No test baseline found"}
+        return {
+            "passed": False,
+            "advisory": True,
+            "detail": "No test baseline found; runtime parity is the comparison",
+        }
     with open(path) as f:
         baseline = json.load(f)
     expected = baseline.get("expected_total_tests")
@@ -338,11 +348,13 @@ def check_baseline_tests(baselines_dir: str, service: str) -> dict:
     if issues:
         return {
             "passed": False,
+            "advisory": True,
             "detail": "; ".join(issues),
             "baseline": baseline,
         }
     return {
         "passed": True,
+        "advisory": True,
         "detail": f"Baseline: {expected} tests ({', '.join(framework)})",
         "baseline": baseline,
     }
@@ -479,8 +491,10 @@ def generate_report(
         "Integration Points": check_integration_points(gha_doc, ado_source_text),
     }
 
-    passed = sum(1 for c in checks.values() if c["passed"])
-    total = len(checks)
+    blocking = {n: c for n, c in checks.items() if not c.get("advisory")}
+    advisory = {n: c for n, c in checks.items() if c.get("advisory")}
+    passed = sum(1 for c in blocking.values() if c["passed"])
+    total = len(blocking)
     score = int((passed / total) * 100)
 
     # Build markdown
@@ -498,10 +512,27 @@ def generate_report(
     lines.append("")
     lines.append("| Check | Status | Details |")
     lines.append("|-------|--------|---------|")
-    for name, result in checks.items():
+    for name, result in blocking.items():
         icon = "PASS" if result["passed"] else "FAIL"
         lines.append(f"| {name} | {icon} | {result['detail']} |")
     lines.append("")
+
+    if advisory:
+        lines.append("### Advisory (stored baselines)")
+        lines.append("")
+        lines.append(
+            "_Informational only. Equivalence is decided by the runtime parity section "
+            "below, which compares the live Azure DevOps and GitHub Actions runs of this "
+            "commit; a missing or stale baseline is reported as an exception, never as a "
+            "pass._"
+        )
+        lines.append("")
+        lines.append("| Check | Status | Details |")
+        lines.append("|-------|--------|---------|")
+        for name, result in advisory.items():
+            icon = "PASS" if result["passed"] else "EXCEPTION"
+            lines.append(f"| {name} | {icon} | {result['detail']} |")
+        lines.append("")
 
     lines.append("### ADO source expansion")
     lines.append("")
@@ -620,8 +651,9 @@ def main():
             "test_baseline": check_baseline_tests(args.baselines, args.service),
             "integration_points": check_integration_points(gha_doc, ado_source_text),
         }
-        passed = sum(1 for c in checks.values() if c["passed"])
-        total = len(checks)
+        blocking = {n: c for n, c in checks.items() if not c.get("advisory")}
+        passed = sum(1 for c in blocking.values() if c["passed"])
+        total = len(blocking)
         output_text = json.dumps({
             "service": args.service,
             "score": int((passed / total) * 100),
