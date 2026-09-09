@@ -135,7 +135,7 @@ Accounts appearing as `last_modified_by` that are not people: `contractor-accoun
 | `staging/preprod` | 104, 103 | **no** | retry logic in `build-python.yml` | Porting from `main` drops the retry; test flakiness would surface as new failures in GHA. |
 | `staging/release-hardening` | 103 only | **no** | extra release gates | Unknown consumers per docs; only the canary touches it. Safe to drop with 103. |
 | `team/frontend-custom` | 106 | **no** | SSR + webpack config | `alt-templates/frontend/*` on `main` may lag the branch team-frontend actually runs. |
-| `team/quant-experiments` | none in YAML | **no** | "possibly scenario-runner, notebook-executor" | Both consumers are fully inline — branch appears to have zero consumers. Delete candidate. |
+| `team/quant-experiments` | none in YAML | **no** | "possibly scenario-runner, notebook-executor" | Both named consumers are fully inline on `main`, so no YAML here references it — but the branch itself is unavailable and `docs/branch-usage-notes.md` still lists them as possible consumers. Export and check before deleting. |
 | `team/reporting-hotfix` | 107 | **no** | extra compliance metadata steps | `team-build-custom.yml` on `main` already contains `generate_metadata.py`; branch may add more. |
 | `legacy/master-support` | 105, 117 | **no** | frozen | Both consumers are dead → delete branch with them. |
 
