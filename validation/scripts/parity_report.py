@@ -11,6 +11,10 @@ Outcomes per service:
   PASS       both systems ran the commit and their results agree
   MISMATCH   both systems ran the commit and their results differ
   EXCEPTION  one side has no run for the commit (reported, not silently passed)
+
+On a pull request the two systems cannot share a commit id, because Azure
+DevOps builds the `refs/pull/<n>/merge` commit. `--pr` pairs the runs by the
+pull request's head commit (`pr.sourceSha`) instead.
 """
 
 import argparse
@@ -18,6 +22,7 @@ import base64
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +31,7 @@ import zipfile
 from io import BytesIO
 
 TIMEOUT = 30
+POLL_INTERVAL = 20
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +108,8 @@ def ado_facts(
     On a pull request the two platforms never share a commit id: Azure DevOps
     builds `refs/pull/<n>/merge`, whose sha is a merge commit GitHub Actions
     never sees. When `pr` is given, the PR validation build is accepted as the
-    counterpart of the GitHub run and the report says so.
+    counterpart of the GitHub run — but only the build whose `pr.sourceSha`
+    is `sha`, since every revision of a pull request reuses the same branch.
     """
     base = f"https://dev.azure.com/{urllib.parse.quote(org)}/{urllib.parse.quote(project)}/_apis"
 
@@ -123,7 +130,15 @@ def ado_facts(
     via_pr = False
     if build is None and pr:
         branch = f"refs/pull/{pr}/merge"
-        build = next((b for b in builds if b.get("sourceBranch") == branch), None)
+        build = next(
+            (
+                b
+                for b in builds
+                if b.get("sourceBranch") == branch
+                and (b.get("triggerInfo") or {}).get("pr.sourceSha", "").startswith(sha[:12])
+            ),
+            None,
+        )
         via_pr = build is not None
     if build is None:
         target = f"pull request {pr}" if pr else f"commit {sha[:8]}"
@@ -332,6 +347,11 @@ def compare(service: str, sha: str, ado: dict, gha: dict) -> tuple[str, str]:
     return "PASS", "\n".join(lines)
 
 
+def _pending(facts: dict) -> bool:
+    """True when the run simply has not finished yet, as opposed to not existing."""
+    return facts["status"] != "ok" and "no completed" in facts.get("reason", "")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ADO ↔ GHA runtime parity report")
     parser.add_argument("--service", required=True)
@@ -347,6 +367,12 @@ def main() -> int:
              "count as the counterpart of the GitHub run",
     )
     parser.add_argument("--output", help="Write the markdown report here as well")
+    parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=0,
+        help="Keep polling for this long while either side is still running",
+    )
     args = parser.parse_args()
 
     ado_headers = ado_credentials()
@@ -359,11 +385,16 @@ def main() -> int:
         )
         return 0
 
+    deadline = time.monotonic() + args.wait_seconds
     try:
-        ado = ado_facts(
-            args.ado_org, args.ado_project, args.ado_pipeline, args.sha, ado_headers, args.pr
-        )
-        gha = gha_facts(args.gh_repo, args.gh_workflow, args.sha, token)
+        while True:
+            ado = ado_facts(
+                args.ado_org, args.ado_project, args.ado_pipeline, args.sha, ado_headers, args.pr
+            )
+            gha = gha_facts(args.gh_repo, args.gh_workflow, args.sha, token)
+            if not (_pending(ado) or _pending(gha)) or time.monotonic() >= deadline:
+                break
+            time.sleep(POLL_INTERVAL)
     except RuntimeError as error:
         print(
             f"### Runtime Parity — `{args.service}`\n\n"

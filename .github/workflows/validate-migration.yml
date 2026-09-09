@@ -200,6 +200,7 @@ jobs:
               --gh-repo "$GITHUB_REPOSITORY" \
               --gh-workflow "$WORKFLOW_FILE" \
               --sha "$PARITY_SHA" \
+              --wait-seconds 600 \
               ${PARITY_PR:+--pr "$PARITY_PR"})
             STATUS=$?
             set -e
