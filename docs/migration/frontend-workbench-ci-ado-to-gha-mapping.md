@@ -55,7 +55,7 @@ Stages 2 and 3 declare no `dependsOn` or `condition`, so ADO runs them sequentia
 | ADO | GHA | Note |
 |---|---|---|
 | `trigger.branches.include: [main, feature/*]` | `on.push.branches: [main, 'feature/**']` | `feature/*` (single level) intentionally broadened to `feature/**` (recursive) |
-| `trigger.paths.include: [services/frontend-workbench/**]` | `on.push.paths: ['services/frontend-workbench/**']` | identical scope; the workflow file itself is deliberately not in the filter (see G9) |
+| `trigger.paths.include: [services/frontend-workbench/**]` | `on.push.paths: ['services/frontend-workbench/**', '.github/workflows/frontend-workbench-ci.yml']` | the workflow file itself is added to the filter (intentional; ADO had no equivalent — see G9) |
 | — (no PR trigger) | `on.pull_request.branches: [main]` with the same paths | **added** for earlier CI feedback; deploy jobs are gated so PRs never deploy |
 | `pool.vmImage: ubuntu-latest` | `runs-on: ubuntu-latest` | |
 
@@ -137,10 +137,10 @@ No `build-tools/scripts/` helper is called by this pipeline, so **no helper-scri
 | G3 | `feature/*` → `feature/**` (recursive) broadens the branch filter to nested `feature/x/y` branches. | Intentional |
 | G4 | No test-result or coverage artifact is uploaded (ADO template has none either). | Pre-existing; optional follow-up: `actions/upload-artifact` for `coverage/` |
 | G5 | Health check URL is hard-coded to `https://<env>.example.com/health` in the team template; kept verbatim. | Pre-existing |
-| G6 | `services/frontend-workbench/` in this repo contains only the ADO YAML — no `package.json` — so the workflow cannot pass until the application source (or a scaffold) lives at that path. The trigger paths match ADO exactly, so the workflow does not fire on this PR. | Environment; not a workflow defect |
+| G6 | ~~services/frontend-workbench/ contained only the ADO YAML~~ — resolved: the runnable Node scaffold (package.json, scripts/, tests/) now exists on main; the build job runs for real. | Resolved |
 | G7 | ADO's `feature/*` push previously also deployed to dev without approval; identical in GHA (`dev-frontend` has no protection rules). | Pre-existing |
 | G8 | `validation/baselines/frontend-workbench/` does not exist, so the migration validator reports **Artifact Baseline: FAIL** and **Test Baseline: FAIL** ("No … baseline found"). The baseline must come from a real ADO run of pipeline 106 (artifact listing + test-result summary); it has not been invented here. | Requires team-frontend / platform to capture a baseline from ADO |
-| G9 | The workflow file is not in the trigger paths (same as ADO). Adding it would make every workflow-only change fail at npm ci until the app source exists (G6); once services/frontend-workbench has a package.json, add '.github/workflows/frontend-workbench-ci.yml' to both push.paths and pull_request.paths. | Deferred; follow-up |
+| G9 | Trigger paths additionally include the workflow file so workflow-only changes exercise the build (deferred until the service source landed on main; now enabled). | Intentional |
 
 ## Required GitHub configuration
 
