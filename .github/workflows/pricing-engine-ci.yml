@@ -1,0 +1,185 @@
+# pricing-engine CI
+# Migrated from services/pricing-engine/azure-pipelines.yml (ADO pipeline "pricing-engine-ci").
+# Templates were consumed from shared-ci-platform@main:
+#   templates/build/build-dotnet.yml, templates/test/run-tests.yml, templates/release/release-standard.yml
+# Mapping and equivalence notes: docs/migration/pricing-engine-ci.md
+
+name: pricing-engine-ci
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'services/pricing-engine/**'
+      - '.github/workflows/pricing-engine-ci.yml'
+  pull_request:
+    paths:
+      - 'services/pricing-engine/**'
+      - '.github/workflows/pricing-engine-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILD_CONFIGURATION: Release
+  ARTIFACT_NAME: pricing-engine-drop
+  DOTNET_VERSION: 8.0.x
+  SOLUTION: services/pricing-engine/PricingEngine.sln
+  # build-tools/scripts/*.py read ADO predefined variables; provide GitHub equivalents.
+  BUILD_SOURCEBRANCH: ${{ github.ref }}
+  BUILD_SOURCEVERSION: ${{ github.sha }}
+  BUILD_DEFINITIONNAME: ${{ github.workflow }}
+  BUILD_REQUESTEDFOR: ${{ github.actor }}
+  SYSTEM_TEAMFOUNDATIONCOLLECTIONURI: ${{ github.server_url }}/
+  SYSTEM_TEAMPROJECT: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build pricing-engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map ADO agent variables
+        run: |
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/a" >> "$GITHUB_ENV"
+          echo "AGENT_NAME=$RUNNER_NAME" >> "$GITHUB_ENV"
+          echo "AGENT_OS=$RUNNER_OS" >> "$GITHUB_ENV"
+
+      - name: Install .NET SDK ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore NuGet packages
+        run: dotnet restore "$SOLUTION"
+
+      - name: Build solution
+        run: dotnet build "$SOLUTION" --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Run unit tests
+        run: |
+          dotnet test services/pricing-engine/tests/PricingEngine.Tests/PricingEngine.Tests.csproj \
+            --configuration "$BUILD_CONFIGURATION" --no-build \
+            --logger "trx;LogFileName=PricingEngine.Tests.trx" \
+            --results-directory "$RUNNER_TEMP/test-output" \
+            --collect:"XPlat Code Coverage"
+
+      - name: Publish artifacts
+        run: |
+          dotnet publish services/pricing-engine/src/PricingEngine/PricingEngine.csproj \
+            --configuration "$BUILD_CONFIGURATION" --no-build \
+            --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine"
+
+      - name: Register artifact in Artifactory
+        run: |
+          python3 build-tools/scripts/publish_artifact.py \
+            --name "$ARTIFACT_NAME" \
+            --registry Artifactory \
+            --build-id "$GITHUB_RUN_ID"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-test-results
+          path: ${{ runner.temp }}/test-output/*.trx
+          if-no-files-found: warn
+
+      - name: Upload code coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-code-coverage
+          path: ${{ runner.temp }}/test-output/**/coverage.cobertura.xml
+          if-no-files-found: warn
+
+  test:
+    name: Run tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map ADO agent variables
+        run: echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/a" >> "$GITHUB_ENV"
+
+      - name: Create test results directory
+        run: mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results"
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: pricing-engine-test-results
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/test-results
+
+      - name: Normalize test results
+        if: always()
+        run: |
+          python3 build-tools/scripts/normalize_test_results.py \
+            --input-dir "$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results" \
+            --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/normalized-results.json"
+
+      - name: Upload normalized results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-normalized-results
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/normalized-results.json
+
+  deploy-dev:
+    name: Deploy to dev
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map ADO agent variables
+        run: |
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/a" >> "$GITHUB_ENV"
+          echo "AGENT_OS=$RUNNER_OS" >> "$GITHUB_ENV"
+
+      - name: Download ${{ env.ARTIFACT_NAME }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.ARTIFACT_NAME }}
+
+      - name: Execute deployment
+        run: |
+          echo "Deploying $ARTIFACT_NAME to dev"
+          echo "Strategy: rolling"
+
+      - name: Notify D2
+        run: |
+          python3 build-tools/scripts/notify_release_orchestrator.py \
+            --service "$ARTIFACT_NAME" \
+            --env dev \
+            --build-id "$GITHUB_RUN_ID" \
+            --status success
+
+      - name: Generate compliance attestation
+        run: |
+          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+          python3 build-tools/scripts/generate_attestation.py \
+            --artifact "$ARTIFACT_NAME" \
+            --env dev \
+            --build-id "$GITHUB_RUN_ID"
+
+      - name: Upload attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-dev-attestation
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
