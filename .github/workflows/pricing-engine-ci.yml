@@ -77,7 +77,7 @@ jobs:
             --configuration "$BUILD_CONFIGURATION" --no-build \
             --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine"
           # DotNetCoreCLI@2 publish zips the output folder by default (zipAfterPublish)
-          (cd "$BUILD_ARTIFACTSTAGINGDIRECTORY" && zip -qr PricingEngine.zip PricingEngine && rm -rf PricingEngine)
+          (cd "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine" && zip -qr ../PricingEngine.zip .) && rm -rf "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
