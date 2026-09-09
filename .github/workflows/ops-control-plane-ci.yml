@@ -27,6 +27,8 @@ on:
       - main
     paths:
       - 'services/ops-control-plane/**'
+  # Not present in ADO — lets operators queue a build for any branch (ADO "Run pipeline").
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,7 +39,7 @@ env:
   GOBIN: ${{ github.workspace }}/go/bin
   MODULE_PATH: services/ops-control-plane
   STAGING_DIR: ${{ github.workspace }}/staging
-  # ADO predefined-variable shims
+  # ADO predefined-variable shims (on pull_request, github.sha is the synthetic merge commit)
   BUILD_SOURCEBRANCH: ${{ github.ref }}
   BUILD_SOURCEVERSION: ${{ github.sha }}
   BUILD_BUILDID: ${{ github.run_id }}

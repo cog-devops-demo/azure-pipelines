@@ -29,6 +29,7 @@
 | `trigger.branches.include: [main]` | `on.push.branches: [main]` | |
 | `trigger.paths.include: [services/ops-control-plane/**]` | `on.push.paths: ['services/ops-control-plane/**']` | GHA path filters support `**` natively (this is not a shell glob). |
 | *(no PR trigger)* | `on.pull_request` on `main`, same path filter | **Intentional addition** for earlier feedback on PRs. |
+| *(manual "Run pipeline" button — implicit in ADO)* | `on.workflow_dispatch` | Preserves the ability to queue a build for any branch. |
 | *(no schedule)* | — | |
 
 ## Stage / job mapping
@@ -60,7 +61,7 @@ source, so none of those translation rules apply.
 | `GOBIN: $(GOPATH)/bin` | `GOBIN: ${{ github.workspace }}/go/bin` | GHA `env` values cannot reference sibling keys, so the path is spelled out. |
 | `modulePath: services/ops-control-plane` | `MODULE_PATH: services/ops-control-plane` + `defaults.run.working-directory` | |
 | `$(Build.ArtifactStagingDirectory)` | `STAGING_DIR: ${{ github.workspace }}/staging` | `runner.temp` is not available in workflow-level `env`, so the staging dir lives under the workspace (outside the Go module dir, so it does not affect `./...` package patterns). |
-| `$(Build.SourceBranch)` / `$(Build.SourceVersion)` / `$(Build.BuildId)` | `BUILD_SOURCEBRANCH` / `BUILD_SOURCEVERSION` / `BUILD_BUILDID` shims + `PIPELINE_URL` | Not consumed by any step today; provided so any future `build-tools/scripts/*` call runs unmodified. |
+| `$(Build.SourceBranch)` / `$(Build.SourceVersion)` / `$(Build.BuildId)` | `BUILD_SOURCEBRANCH` / `BUILD_SOURCEVERSION` / `BUILD_BUILDID` shims + `PIPELINE_URL` | Not consumed by any step today; provided so any future `build-tools/scripts/*` call runs unmodified. On `pull_request` events `github.sha` is GitHub's synthetic merge commit, not the PR head — use `github.event.pull_request.head.sha` if a future helper needs the contributor's revision. |
 
 ## Condition mapping
 
@@ -94,7 +95,13 @@ expressions. Nothing to translate.
    dormant bindings. Recorded above so they are not lost when the ADO definition is retired.
 6. **Workflow does not trigger on changes to itself**: paths are kept identical to ADO.
    `services/ops-control-plane/` on `main` currently contains only the ADO YAML (no Go sources),
-   so the workflow will first run when Go sources are added under that path.
+   so the workflow will first run when Go sources are added under that path. Adding the
+   workflow file to its own `paths` filter is deliberately deferred until then — today it would
+   only produce a guaranteed-red run (`go: go.mod file not found`) on every workflow edit.
+7. **Migration validator baselines absent**: `validation/baselines/ops-control-plane/` does not
+   exist, so the `validate-migration` scorecard reports the Artifact Baseline and Test Baseline
+   checks as FAIL (5/7 PASS). Baselines must be measured from a real ADO run of definition 109
+   (artifact file count/types, `go test` case count) and are not invented here.
 
 ## Secrets required
 
