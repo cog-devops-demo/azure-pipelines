@@ -38,6 +38,7 @@ stages:
               nodeVersion: '18.x'
               framework: 'react'
               enableSSR: true
+              projectDirectory: 'services/frontend-workbench'
               artifactName: $(artifactName)
 
   - template: alt-templates/frontend/frontend-deploy.yml@templates
