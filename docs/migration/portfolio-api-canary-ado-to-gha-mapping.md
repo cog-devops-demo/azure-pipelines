@@ -87,7 +87,7 @@ branches (JDK, upload, test collection) are shared; steps that differ are inline
 |---|---|---|---|
 | 0 | implicit `checkout: self` | `actions/checkout@v4` | |
 | 1 | `JavaToolInstaller@0` (17, x64, PreInstalled) | `actions/setup-java@v4` `distribution: temurin`, `java-version: 17`, `architecture: x64` | Hosted ADO images preinstall Temurin; no Maven cache (ADO had none). |
-| 2 | `Maven@4` @ `main` | `Maven clean package`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS clean package` (`if: == 'main'`) | `PROJECT_DIR=services/portfolio-api` — see gap 1. |
+| 2 | `Maven@4` @ `main` | `Maven clean package`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS clean package` (`# shellcheck disable=SC2086` — intentional word-splitting of the option list) (`if: == 'main'`) | `PROJECT_DIR=services/portfolio-api` — see gap 1. |
 | 2 | `Maven@4` @ `master` | `Maven package`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package` (`if: == 'master'`) | ADO resolves `projectDirectory` default `.`; GHA uses `PROJECT_DIR` (gap 1). |
 | 2 | `Maven@4` @ `staging/preprod` | `Maven package (staging/preprod)`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package` | |
 | 2 | `Maven@4` @ `staging/release-hardening` | `Maven package (staging/release-hardening)`: same command | |

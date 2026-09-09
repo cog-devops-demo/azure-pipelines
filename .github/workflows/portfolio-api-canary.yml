@@ -88,22 +88,30 @@ jobs:
       # --- mapped from: Maven@4 (build-java.yml @ main: goals 'clean package', mavenPomFile 'pom.xml') ---
       - name: Maven clean package
         if: matrix.template_branch == 'main'
-        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS clean package
+        run: |
+          # shellcheck disable=SC2086  # MAVEN_OPTIONS is a space-separated option list
+          mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS clean package
 
       # --- mapped from: Maven@4 (build-java.yml @ master: goals 'package', mavenPomFile '${{ parameters.projectDirectory }}/pom.xml' = './pom.xml') ---
       - name: Maven package
         if: matrix.template_branch == 'master'
-        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
+        run: |
+          # shellcheck disable=SC2086  # MAVEN_OPTIONS is a space-separated option list
+          mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 (build-java.yml @ staging/preprod: goals 'package', mavenPomFile 'pom.xml') ---
       - name: Maven package (staging/preprod)
         if: matrix.template_branch == 'staging/preprod'
-        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
+        run: |
+          # shellcheck disable=SC2086  # MAVEN_OPTIONS is a space-separated option list
+          mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 (build-java.yml @ staging/release-hardening: goals 'package', mavenPomFile 'pom.xml') ---
       - name: Maven package (staging/release-hardening)
         if: matrix.template_branch == 'staging/release-hardening'
-        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
+        run: |
+          # shellcheck disable=SC2086  # MAVEN_OPTIONS is a space-separated option list
+          mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 publishJUnitResults: true, testResultsFiles '**/surefire-reports/TEST-*.xml' ---
       - name: Collect JUnit test results
