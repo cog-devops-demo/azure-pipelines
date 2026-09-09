@@ -1,0 +1,194 @@
+# portfolio-api-canary CI workflow
+# Migrated from: services/portfolio-api/azure-pipelines-canary.yml (ADO pipeline ID 103)
+# Stack: Java 17 / Maven
+# Original template source: templates/build/build-java.yml consumed from FOUR
+#   shared-ci-platform branches, selected at queue time by the `templateBranch`
+#   parameter: main, master, staging/preprod, staging/release-hardening
+#
+# ADO templates inlined (one variant per template branch, read from
+# shared-ci-platform on ADO org danagajewski / project danagajewski-demo):
+#   - templates/build/build-java.yml @ main
+#       (mavenGoals default 'clean package', --registry Artifactory)
+#   - templates/build/build-java.yml @ master
+#       (mavenGoal default 'package', projectDirectory '.', --registry artifact-registry)
+#   - templates/build/build-java.yml @ staging/preprod
+#       (mavenGoal default 'package', --registry artifact-registry)
+#   - templates/build/build-java.yml @ staging/release-hardening
+#       (mavenGoal default 'package', --registry artifact-registry; identical to staging/preprod)
+#
+# The ADO compile-time `${{ if eq(parameters.templateBranch, ...) }}` selector
+# becomes a matrix over the branch variants. Dispatching with `all` runs the
+# four variants side by side, which is what this canary exists for.
+# This workflow becomes unnecessary once the template branches are unified.
+
+name: portfolio-api-canary
+
+on:
+  # --- mapped from: trigger: none + parameters.templateBranch ---
+  workflow_dispatch:
+    inputs:
+      template_branch:
+        description: 'Template branch to use (or "all" to run every variant as a matrix)'
+        type: choice
+        default: main
+        options:
+          - main
+          - master
+          - staging/preprod
+          - staging/release-hardening
+          - all
+  # Intentional addition (ADO pipeline had no PR trigger): PR runs exercise the
+  # `main` template variant only and never register artifacts.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/portfolio-api/**'
+      - 'templates/build/build-java.yml'
+
+# --- mapped from: variables ---
+env:
+  ARTIFACT_NAME: portfolio-api-canary                 # $(artifactName)
+  JDK_VERSION: '17'                                   # template parameter jdkVersion
+  MAVEN_OPTIONS: '-B -DskipTests=false'               # template parameter mavenOptions (default on every branch)
+
+jobs:
+  # --- mapped from: stage Build / job build ---
+  build:
+    name: Build portfolio-api (canary - ${{ matrix.template_branch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # --- mapped from: parameters.templateBranch (values list) ---
+        # `inputs.template_branch` is empty on pull_request, so PR runs resolve to `main`.
+        template_branch: ${{ fromJSON(inputs.template_branch == 'all' && '["main","master","staging/preprod","staging/release-hardening"]' || format('["{0}"]', inputs.template_branch || 'main')) }}
+    env:
+      # --- mapped from: variables.templates_branch = ${{ parameters.templateBranch }} ---
+      TEMPLATE_BRANCH: ${{ matrix.template_branch }}
+      # $(Build.ArtifactStagingDirectory) -> $RUNNER_TEMP/staging (created with mkdir -p in each step that writes to it)
+    steps:
+      # --- mapped from: implicit checkout: self ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: JavaToolInstaller@0 (versionSpec 17, x64, PreInstalled) — identical on all four branches ---
+      - name: Install JDK ${{ env.JDK_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JDK_VERSION }}
+          architecture: x64
+
+      # --- mapped from: Maven@4 (build-java.yml @ main: goals 'clean package', mavenPomFile 'pom.xml') ---
+      - name: Maven clean package
+        if: matrix.template_branch == 'main'
+        run: mvn -f pom.xml $MAVEN_OPTIONS clean package
+
+      # --- mapped from: Maven@4 (build-java.yml @ master: goals 'package', mavenPomFile '${{ parameters.projectDirectory }}/pom.xml' = './pom.xml') ---
+      - name: Maven package
+        if: matrix.template_branch == 'master'
+        run: mvn -f ./pom.xml $MAVEN_OPTIONS package
+
+      # --- mapped from: Maven@4 (build-java.yml @ staging/preprod: goals 'package', mavenPomFile 'pom.xml') ---
+      - name: Maven package (staging/preprod)
+        if: matrix.template_branch == 'staging/preprod'
+        run: mvn -f pom.xml $MAVEN_OPTIONS package
+
+      # --- mapped from: Maven@4 (build-java.yml @ staging/release-hardening: goals 'package', mavenPomFile 'pom.xml') ---
+      - name: Maven package (staging/release-hardening)
+        if: matrix.template_branch == 'staging/release-hardening'
+        run: mvn -f pom.xml $MAVEN_OPTIONS package
+
+      # --- mapped from: Maven@4 publishJUnitResults: true, testResultsFiles '**/surefire-reports/TEST-*.xml' ---
+      - name: Collect JUnit test results
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/test-results"
+          find . -path ./.git -prune -o -type f -path '*/surefire-reports/TEST-*.xml' -print \
+            | while IFS= read -r f; do cp --parents "$f" "$RUNNER_TEMP/test-results/"; done
+
+      # --- mapped from: Maven@4 publishJUnitResults: true (no native test tab in GHA; uploaded as an artifact) ---
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.template_branch == 'staging/preprod' && 'staging-preprod' || matrix.template_branch == 'staging/release-hardening' && 'staging-release-hardening' || matrix.template_branch }}
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: warn
+
+      # --- mapped from: script 'Stage build artifacts' (build-java.yml @ main, staging/preprod, staging/release-hardening) ---
+      - name: Stage build artifacts
+        if: matrix.template_branch != 'master'
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          cp target/*.jar "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+          cp target/*.war "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+
+      # --- mapped from: script 'Stage build artifacts' (build-java.yml @ master: '${{ parameters.projectDirectory }}/target' = './target') ---
+      - name: Stage build artifacts (master)
+        if: matrix.template_branch == 'master'
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          cp ./target/*.jar "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+          cp ./target/*.war "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory), artifactName $(artifactName)) ---
+      # Artifact name gets a per-variant suffix because a matrix run uploads four artifacts into one run.
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-${{ matrix.template_branch == 'staging/preprod' && 'staging-preprod' || matrix.template_branch == 'staging/release-hardening' && 'staging-release-hardening' || matrix.template_branch }}
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: warn
+
+      # Registration never runs on pull_request; workflow_dispatch is allowed because the ADO
+      # pipeline is manual-only and every manual ADO run registered its artifact.
+      # --- mapped from: script 'Register artifact in Artifactory' (build-java.yml @ main: --registry Artifactory) ---
+      - name: Register artifact in Artifactory
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && matrix.template_branch == 'main'
+        env:
+          BUILD_SOURCEBRANCH: ${{ github.ref }}
+          BUILD_SOURCEVERSION: ${{ github.sha }}
+          BUILD_BUILDID: ${{ github.run_id }}
+          AGENT_NAME: ${{ runner.name }}
+          BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ runner.temp }}/staging
+          PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          python "$GITHUB_WORKSPACE"/build-tools/scripts/publish_artifact.py \
+            --name "$ARTIFACT_NAME" \
+            --registry Artifactory \
+            --build-id "${{ github.run_id }}"
+
+      # --- mapped from: script 'Register artifact in artifact-registry' (build-java.yml @ master, staging/preprod, staging/release-hardening: --registry artifact-registry) ---
+      - name: Register artifact in artifact-registry
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && matrix.template_branch != 'main'
+        env:
+          BUILD_SOURCEBRANCH: ${{ github.ref }}
+          BUILD_SOURCEVERSION: ${{ github.sha }}
+          BUILD_BUILDID: ${{ github.run_id }}
+          AGENT_NAME: ${{ runner.name }}
+          BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ runner.temp }}/staging
+          PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          python "$GITHUB_WORKSPACE"/build-tools/scripts/publish_artifact.py \
+            --name "$ARTIFACT_NAME" \
+            --registry artifact-registry \
+            --build-id "${{ github.run_id }}"
+
+      # --- mapped from: stage displayName 'Build portfolio-api (canary - ${{ parameters.templateBranch }})' ---
+      - name: Write canary run summary
+        if: always()
+        run: |
+          {
+            echo "## portfolio-api-canary — template branch \`$TEMPLATE_BRANCH\`"
+            echo
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Template | templates/build/build-java.yml @ $TEMPLATE_BRANCH |"
+            echo "| JDK | $JDK_VERSION |"
+            echo "| Maven options | $MAVEN_OPTIONS |"
+            echo "| Artifact registration | ${{ github.event_name == 'pull_request' && 'skipped (pull_request)' || 'enabled' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
