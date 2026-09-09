@@ -122,8 +122,7 @@ def ado_facts(
     definition_id = definitions[0]["id"]
 
     builds = _get(
-        f"{base}/build/builds?definitions={definition_id}"
-        f"&statusFilter=completed&$top=50&api-version=7.1",
+        f"{base}/build/builds?definitions={definition_id}&$top=50&api-version=7.1",
         headers,
     ).get("value") or []
     build = next((b for b in builds if (b.get("sourceVersion") or "").startswith(sha[:12])), None)
@@ -140,12 +139,19 @@ def ado_facts(
             None,
         )
         via_pr = build is not None
+    target = f"pull request {pr}" if pr else f"commit {sha[:8]}"
     if build is None:
-        target = f"pull request {pr}" if pr else f"commit {sha[:8]}"
         return {
             "status": "exception",
-            "reason": f"no completed ADO run of {pipeline} for {target}",
+            "reason": f"no ADO run of {pipeline} for {target}",
             "definition_id": definition_id,
+        }
+    if build.get("status") != "completed":
+        return {
+            "status": "exception",
+            "reason": f"the ADO run of {pipeline} for {target} is {build.get('status')}",
+            "definition_id": definition_id,
+            "pending": True,
         }
 
     build_id = build["id"]
@@ -215,15 +221,21 @@ def gha_facts(repo: str, workflow: str, sha: str, token: str) -> dict:
 
     runs = _get(
         f"{base}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
-        f"?head_sha={sha}&status=completed&per_page=1",
+        f"?head_sha={sha}&per_page=10",
         headers,
     ).get("workflow_runs") or []
     if not runs:
         return {
             "status": "exception",
-            "reason": f"no completed GHA run of {workflow} for commit {sha[:8]}",
+            "reason": f"no GHA run of {workflow} for commit {sha[:8]}",
         }
-    run = runs[0]
+    run = next((r for r in runs if r.get("status") == "completed"), None)
+    if run is None:
+        return {
+            "status": "exception",
+            "reason": f"the GHA run of {workflow} for commit {sha[:8]} is {runs[0].get('status')}",
+            "pending": True,
+        }
 
     artifacts = _get(
         f"{base}/actions/runs/{run['id']}/artifacts?per_page=100", headers
@@ -348,8 +360,12 @@ def compare(service: str, sha: str, ado: dict, gha: dict) -> tuple[str, str]:
 
 
 def _pending(facts: dict) -> bool:
-    """True when the run simply has not finished yet, as opposed to not existing."""
-    return facts["status"] != "ok" and "no completed" in facts.get("reason", "")
+    """True when a matching run exists but has not finished yet.
+
+    A run that does not exist at all is not worth waiting for: the pipeline may
+    simply have no counterpart on the other platform.
+    """
+    return bool(facts.get("pending"))
 
 
 def main() -> int:
