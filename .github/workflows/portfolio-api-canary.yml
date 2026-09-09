@@ -52,6 +52,10 @@ env:
   ARTIFACT_NAME: portfolio-api-canary                 # $(artifactName)
   JDK_VERSION: '17'                                   # template parameter jdkVersion
   MAVEN_OPTIONS: '-B -DskipTests=false'               # template parameter mavenOptions (default on every branch)
+  # Intentional deviation: the ADO canary passes no projectDirectory, so every variant
+  # resolves `pom.xml` at the repo root, where no project exists. The Maven project
+  # lives in services/portfolio-api (see services/portfolio-api/azure-pipelines.yml).
+  PROJECT_DIR: services/portfolio-api
 
 jobs:
   # --- mapped from: stage Build / job build ---
@@ -84,22 +88,22 @@ jobs:
       # --- mapped from: Maven@4 (build-java.yml @ main: goals 'clean package', mavenPomFile 'pom.xml') ---
       - name: Maven clean package
         if: matrix.template_branch == 'main'
-        run: mvn -f pom.xml $MAVEN_OPTIONS clean package
+        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS clean package
 
       # --- mapped from: Maven@4 (build-java.yml @ master: goals 'package', mavenPomFile '${{ parameters.projectDirectory }}/pom.xml' = './pom.xml') ---
       - name: Maven package
         if: matrix.template_branch == 'master'
-        run: mvn -f ./pom.xml $MAVEN_OPTIONS package
+        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 (build-java.yml @ staging/preprod: goals 'package', mavenPomFile 'pom.xml') ---
       - name: Maven package (staging/preprod)
         if: matrix.template_branch == 'staging/preprod'
-        run: mvn -f pom.xml $MAVEN_OPTIONS package
+        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 (build-java.yml @ staging/release-hardening: goals 'package', mavenPomFile 'pom.xml') ---
       - name: Maven package (staging/release-hardening)
         if: matrix.template_branch == 'staging/release-hardening'
-        run: mvn -f pom.xml $MAVEN_OPTIONS package
+        run: mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package
 
       # --- mapped from: Maven@4 publishJUnitResults: true, testResultsFiles '**/surefire-reports/TEST-*.xml' ---
       - name: Collect JUnit test results
@@ -123,16 +127,16 @@ jobs:
         if: matrix.template_branch != 'master'
         run: |
           mkdir -p "$RUNNER_TEMP/staging"
-          cp target/*.jar "$RUNNER_TEMP/staging"/ 2>/dev/null || true
-          cp target/*.war "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+          cp "$PROJECT_DIR"/target/*.jar "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+          cp "$PROJECT_DIR"/target/*.war "$RUNNER_TEMP/staging"/ 2>/dev/null || true
 
       # --- mapped from: script 'Stage build artifacts' (build-java.yml @ master: '${{ parameters.projectDirectory }}/target' = './target') ---
       - name: Stage build artifacts (master)
         if: matrix.template_branch == 'master'
         run: |
           mkdir -p "$RUNNER_TEMP/staging"
-          cp ./target/*.jar "$RUNNER_TEMP/staging"/ 2>/dev/null || true
-          cp ./target/*.war "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+          cp "$PROJECT_DIR"/target/*.jar "$RUNNER_TEMP/staging"/ 2>/dev/null || true
+          cp "$PROJECT_DIR"/target/*.war "$RUNNER_TEMP/staging"/ 2>/dev/null || true
 
       # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory), artifactName $(artifactName)) ---
       # Artifact name gets a per-variant suffix because a matrix run uploads four artifacts into one run.

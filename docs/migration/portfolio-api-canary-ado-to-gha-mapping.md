@@ -87,13 +87,13 @@ branches (JDK, upload, test collection) are shared; steps that differ are inline
 |---|---|---|---|
 | 0 | implicit `checkout: self` | `actions/checkout@v4` | |
 | 1 | `JavaToolInstaller@0` (17, x64, PreInstalled) | `actions/setup-java@v4` `distribution: temurin`, `java-version: 17`, `architecture: x64` | Hosted ADO images preinstall Temurin; no Maven cache (ADO had none). |
-| 2 | `Maven@4` @ `main` | `Maven clean package`: `mvn -f pom.xml $MAVEN_OPTIONS clean package` (`if: == 'main'`) | |
-| 2 | `Maven@4` @ `master` | `Maven package`: `mvn -f ./pom.xml $MAVEN_OPTIONS package` (`if: == 'master'`) | `projectDirectory` default `.` resolved. |
-| 2 | `Maven@4` @ `staging/preprod` | `Maven package (staging/preprod)`: `mvn -f pom.xml $MAVEN_OPTIONS package` | |
+| 2 | `Maven@4` @ `main` | `Maven clean package`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS clean package` (`if: == 'main'`) | `PROJECT_DIR=services/portfolio-api` — see gap 1. |
+| 2 | `Maven@4` @ `master` | `Maven package`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package` (`if: == 'master'`) | ADO resolves `projectDirectory` default `.`; GHA uses `PROJECT_DIR` (gap 1). |
+| 2 | `Maven@4` @ `staging/preprod` | `Maven package (staging/preprod)`: `mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS package` | |
 | 2 | `Maven@4` @ `staging/release-hardening` | `Maven package (staging/release-hardening)`: same command | |
 | 2b | `Maven@4.publishJUnitResults` + `**/surefire-reports/TEST-*.xml` | `Collect JUnit test results` (`find … -path '*/surefire-reports/TEST-*.xml'` + `cp --parents`) → `actions/upload-artifact@v4` `test-results-<variant>` (`if: always()`) | `find` replaces `**` (no globstar in GHA bash); `--parents` keeps module paths. No native test tab in GHA (gap 3). |
 | 3 | script `Stage build artifacts` (`main`/preprod/hardening) | `Stage build artifacts` (`if: != 'master'`): `mkdir -p "$RUNNER_TEMP/staging"` then identical `cp … \|\| true` lines | `$(Build.ArtifactStagingDirectory)` → `$RUNNER_TEMP/staging`, created with `mkdir -p`. |
-| 3 | script `Stage build artifacts` (`master`) | `Stage build artifacts (master)`: `cp ./target/*.jar …` | |
+| 3 | script `Stage build artifacts` (`master`) | `Stage build artifacts (master)`: `cp "$PROJECT_DIR"/target/*.jar …` | Both staging steps read `$PROJECT_DIR/target` (gap 1). |
 | 4 | `PublishBuildArtifacts@1` `portfolio-api-canary` | `actions/upload-artifact@v4` `name: portfolio-api-canary-<variant>`, `path: ${{ runner.temp }}/staging`, `if-no-files-found: warn` | Per-variant suffix (`main`, `master`, `staging-preprod`, `staging-release-hardening`) because a matrix run uploads four artifacts into one run; `warn` mirrors ADO uploading an empty staging dir without failing. |
 | 5 | script `Register artifact in Artifactory` (`main`) | `Register artifact in Artifactory` — same `publish_artifact.py` call, `--registry Artifactory` | `if: (push \|\| workflow_dispatch) && == 'main'`; env shims below; `mkdir -p` before the script writes its manifest. |
 | 5 | script `Register artifact in artifact-registry` (other three) | `Register artifact in artifact-registry` — `--registry artifact-registry` | `if: (push \|\| workflow_dispatch) && != 'main'` |
@@ -107,6 +107,7 @@ branches (JDK, upload, test collection) are shared; steps that differ are inline
 | `variables.templates_branch` = `${{ parameters.templateBranch }}` | job `env.TEMPLATE_BRANCH` = `${{ matrix.template_branch }}` |
 | template param `jdkVersion: '17'` | `env.JDK_VERSION` |
 | template param `mavenOptions` default | `env.MAVEN_OPTIONS` = `-B -DskipTests=false` |
+| (none — ADO canary passes no `projectDirectory`) | `env.PROJECT_DIR` = `services/portfolio-api` (gap 1) |
 | template param `mavenGoals` / `mavenGoal` default | literal per variant step (`clean package` / `package`) |
 | `--registry` literal | literal per variant step (`Artifactory` / `artifact-registry`) |
 | `$(Build.ArtifactStagingDirectory)` | `$RUNNER_TEMP/staging` (shimmed as `BUILD_ARTIFACTSTAGINGDIRECTORY` for the script) |
@@ -143,11 +144,14 @@ env vars it reads are shimmed.
 
 ## 8. Known gaps / behavioural differences
 
-1. **No `pom.xml` in this repo** (pre-existing). Every branch's template runs Maven against
-   `pom.xml` at the repo root; `services/portfolio-api/` contains only the two ADO YAMLs and the
-   live ADO mirror run of pipeline 5 failed for that reason. The GHA workflow preserves this
-   behaviour (fails at the Maven step) rather than inventing a project — fix by adding the source
-   or pointing the template at the right directory.
+1. **Project directory** (intentional deviation). The ADO canary passes no `projectDirectory`, so
+   every template variant runs Maven against `pom.xml` at the repo root, where no project exists —
+   the live ADO mirror run of pipeline 5 fails at the Maven step for that reason. The Maven project
+   lives in `services/portfolio-api/` (restored on `main`; `services/portfolio-api/azure-pipelines.yml`
+   passes `projectDirectory: 'services/portfolio-api'`). The GHA workflow therefore uses
+   `env.PROJECT_DIR=services/portfolio-api` for the `-f` pom path and the `target/` staging copies
+   in all four variants, so the canary actually exercises the template differences instead of
+   reproducing the ADO path bug. Everything else per variant (goals, options, registry) is unchanged.
 2. **Registration on manual runs**. The playbook rule "register only on `push`" would make
    registration unreachable in a workflow with no push trigger. Because the ADO pipeline is
    manual-only and every manual ADO run registered, the guard is
