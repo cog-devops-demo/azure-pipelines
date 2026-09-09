@@ -4,7 +4,7 @@
 # Owner: team-quant
 #
 # ADO templates expanded from main + documented master drift (master branch deleted):
-#   - templates/build/build-java.yml        (jdkVersion=17, mavenGoal=package, artifactName=portfolio-api-dist)
+#   - templates/build/build-java.yml        (projectDirectory=services/portfolio-api, jdkVersion=17, mavenGoal=package, artifactName=portfolio-api-dist)
 #   - templates/release/release-standard.yml (environment=staging, artifactName=portfolio-api-dist;
 #                                             defaults: deployStrategy=rolling, requireApproval=false,
 #                                             notifyReleaseOrchestrator=true)
@@ -69,7 +69,7 @@ jobs:
           cache: maven
           cache-dependency-path: services/portfolio-api/pom.xml
 
-      # --- mapped from: Maven@4 (mavenPomFile=pom.xml, goals=package, options=-B -DskipTests=false) ---
+      # --- mapped from: Maven@4 (mavenPomFile=${projectDirectory}/pom.xml with projectDirectory=services/portfolio-api, goals=package, options=-B -DskipTests=false) ---
       - name: Maven ${{ env.MAVEN_GOAL }}
         working-directory: ${{ env.SERVICE_DIR }}
         run: mvn -f pom.xml $MAVEN_OPTIONS $MAVEN_GOAL

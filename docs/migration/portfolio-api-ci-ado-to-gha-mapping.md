@@ -45,13 +45,14 @@ remain outside the filter and require a matching service change or
 | `variables.artifactName: portfolio-api-dist` | `ARTIFACT_NAME: portfolio-api-dist` | Pipeline |
 | `parameters.jdkVersion: '17'` | `JDK_VERSION: '17'` | Pipeline → template |
 | `parameters.mavenGoal: 'package'` | `MAVEN_GOAL: package` | Pipeline → documented master template drift |
+| `parameters.projectDirectory: services/portfolio-api` | `SERVICE_DIR: services/portfolio-api` | Pipeline → current `build-java.yml` parameter |
 | `parameters.mavenOptions` (default `-B -DskipTests=false`) | `MAVEN_OPTIONS: -B -DskipTests=false` | Template default |
 | `parameters.runTests` / `publishArtifacts` (default `true`) | Steps always present | Template defaults |
 | `parameters.environment: staging` | Literal `staging` in deploy job | Pipeline |
 | `deployStrategy` (default `rolling`) | Literal `rolling` in deploy step | Template default |
 | `requireApproval` (default `false`) | No branch condition; GitHub environment reviewers provide R5 protection | Template default / environment configuration |
 | `notifyReleaseOrchestrator` (default `true`) | Notify step present | Template default |
-| `mavenPomFile: pom.xml` | `working-directory: services/portfolio-api` + `mvn -f pom.xml` | The service source and POM are restored under `services/portfolio-api` (PR #25); the relative path is resolved there. |
+| `mavenPomFile: <projectDirectory>/pom.xml` | `working-directory: services/portfolio-api` + `mvn -f pom.xml` | PR #25 restored the service source and added `projectDirectory` to the current `build-java.yml`; the legacy master template used root-relative `mavenPomFile: pom.xml`. |
 
 ## 3. Stage → job mapping
 
@@ -68,7 +69,7 @@ remain outside the filter and require a matching service change or
 |---|---|---|---|
 | 1 | Implicit checkout | `actions/checkout@v4` | Explicit first step in the job. |
 | 2 | `JavaToolInstaller@0` versionSpec=17, x64, PreInstalled | `actions/setup-java@v4` distribution=temurin, java-version=17, `cache: maven` | Hosted agents' pre-installed JDK is represented by Temurin 17. |
-| 3 | `Maven@4` mavenPomFile=pom.xml, goals=package, options=`-B -DskipTests=false` | `mvn -f pom.xml $MAVEN_OPTIONS $MAVEN_GOAL` in `services/portfolio-api` | Same goal/options; the service `working-directory` resolves the relative POM path. |
+| 3 | `Maven@4` mavenPomFile=`${projectDirectory}/pom.xml` with `projectDirectory=services/portfolio-api`, goals=package, options=`-B -DskipTests=false` | `mvn -f pom.xml $MAVEN_OPTIONS $MAVEN_GOAL` in `services/portfolio-api` | Same goal/options; `working-directory: services/portfolio-api` is equivalent to the current template parameter. |
 | 4 | `Maven@4` publishJUnitResults=true, testResultsFiles=`**/surefire-reports/TEST-*.xml` | `Collect JUnit test results` (`find … -path '*/surefire-reports/TEST-*.xml'`, `if: always()`) + `actions/upload-artifact@v4` (`if: always()`) | `find` replaces the ADO glob. Results are retained when tests fail. |
 | 5 | `script` "Stage build artifacts" (`cp target/*.jar\|*.war $(Build.ArtifactStagingDirectory)/`) | Same copies into `${{ runner.temp }}/staging` after `mkdir -p` | Runner temp replaces the ADO staging directory. |
 | 6 | `PublishBuildArtifacts@1` pathToPublish=staging dir, artifactName=`portfolio-api-dist` | `actions/upload-artifact@v4` name=`portfolio-api-dist` | `if-no-files-found: error` makes an empty distribution fail the build. |
@@ -149,7 +150,7 @@ registry or compliance-store calls.
 
 | ID | Gap | Impact / decision |
 |---|---|---|
-| **G1** | The portfolio-api source and `pom.xml` now exist under `services/portfolio-api`, restored by PR #25. The ADO master template's `mavenPomFile: pom.xml` is resolved relative to that service directory. | The workflow uses `working-directory: services/portfolio-api` with `mvn -f pom.xml`; the local build produced exactly `portfolio-api-0.1.0.jar` and 5 JUnit tests, matching `validation/baselines/portfolio-api`. |
+| **G1** | PR #25 restored the service source and added a `projectDirectory` parameter to `build-java.yml` on `main` (`mavenPomFile: <projectDirectory>/pom.xml`); the pipeline passes `projectDirectory: services/portfolio-api`. The legacy master template used a root-relative `mavenPomFile: pom.xml`. | The workflow uses `working-directory: services/portfolio-api` with `mvn -f pom.xml`, equivalent to the current template; the local build produced exactly `portfolio-api-0.1.0.jar` and 5 JUnit tests, matching `validation/baselines/portfolio-api`. |
 | **G2** | `master` `build-java.yml` used `mavenGoal: package`; `main` uses `mavenGoals: clean package`. | Workflow keeps the documented master behavior (`package`, no `clean`). |
 | **G3** | The ADO template reference points to deleted `master`; template expansion therefore uses `main` plus documented master drift. | Master-faithful display names and registry argument are retained in the workflow. |
 | **G4** | ADO Tests tab results are represented by a GitHub artifact. | Consumers must download `portfolio-api-test-results` to inspect XML. |
