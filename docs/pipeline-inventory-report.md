@@ -16,8 +16,8 @@ Headline risks:
 
 1. **Template branches are missing from this repo.** Pipeline YAML references seven template branches (`master`, `staging/preprod`, `staging/release-hardening`, `team/frontend-custom`, `team/quant-experiments`, `team/reporting-hotfix`, `legacy/master-support`). Only `main` exists on `origin`. Every template resolution below was done against `main`; the actual drift on those branches (e.g. the retry logic `risk-batch-ci` depends on, the SSR steps `frontend-workbench-ci` depends on) **cannot be verified from this repository** and must be pulled from the ADO `shared-ci-platform` TfsGit repo before migration is declared equivalent.
 2. **6 of 18 registered pipelines have no owner** (`owner_team` = unknown/none), including one production build pipeline (`pricing-engine-ci`) and two scheduled compute jobs that write to internal systems.
-3. **Five pipeline YAMLs reference source that is not in the repo** (`services/regulatory-reporting/src`, `services/scenario-runner/src`, `services/notebook-executor/notebooks`, `adhoc/scripts/*.py`). Their behaviour can only be inferred from the YAML + ADO run history.
-4. **Every "Migrate" pipeline has hidden downstream coupling** via `build-tools/scripts/*` — Artifactory registration, D2 release notifications, attestation-database writes — that is not visible in the service YAML because it is buried in the shared templates.
+3. **Six pipeline YAMLs reference source that is not in the repo** (107, 110, 111, 115, 116, 118 — `services/regulatory-reporting/src`, `services/scenario-runner/src`, `services/notebook-executor/notebooks`, `adhoc/scripts/*.py`, `batch_runner/`; full list in §7.4). Their behaviour can only be inferred from the YAML + ADO run history.
+4. **The three template-based release pipelines (101, 102, 104) have hidden downstream coupling** via `build-tools/scripts/*` — Artifactory registration, D2 release notifications, attestation-database writes — that is not visible in the service YAML because it is buried in the shared templates. The inline pipelines (108, 109) have the opposite problem: ADO binds them to ACR/K8s credentials their YAML never uses.
 5. **Non-build workloads use ~16× more agent-time than builds.** Over the 90-day window (`build_runs_summary`, runs × avg duration) the 7 non-build pipelines consumed ≈ 41,500 agent-minutes vs ≈ 2,600 for the 7 build pipelines; all but one (`bulk-reprocess-trades`) run on self-hosted pools with internal network access and cannot land on GitHub-hosted runners.
 
 ## 2. Full inventory
@@ -92,7 +92,7 @@ Also dead (templates, not pipelines): `services/risk-batch/pipeline-fragments/bu
 
 | Pipeline(s) | ADO `owner_team` | `docs/ownership-gaps.md` | Risk |
 |---|---|---|---|
-| pricing-engine-ci (101) | unknown | unknown / low | Production build with release gates and no approver who understands it. Last modified by a departed contractor account. **Must be assigned before migration** — `service-owner` is a required prod approver in the `prod` environment definition. |
+| pricing-engine-ci (101) | unknown | unknown / low | Production service build with a `dev` release gate (`requireApproval: true`) and no approver who understands it. Last modified by a departed contractor account. **Must be assigned before migration** — there is nobody to sign off parity, and any future promotion to `prod` needs a `service-owner` approver per that environment's checks. |
 | market-sim-ci (108) | team-quant | team-quant? / low | Deploys outside D2; if team-quant disowns it there is no deployment record anywhere. |
 | notebook-executor-nightly (110) | unknown | ? / none | Runs nightly on internal infra with internal credentials; nobody claims it; notebooks not in repo. Highest risk item in the estate — recommend a **disable-and-see-who-shouts** window before re-platforming. |
 | scenario-runner-weekly (111) | unknown | ? / none | 6-hour weekly runs on the most expensive pool; no owner to validate outputs. |
@@ -119,7 +119,7 @@ Accounts appearing as `last_modified_by` that are not people: `contractor-accoun
 
 | Object | Items | Pipelines | GHA mapping |
 |---|---|---|---|
-| Variable groups | 10 groups, 17 secret values | all except 108, 117, 118 | Org/repo/environment secrets. Shared groups (`shared-ci-secrets`: NuGet/PyPI/npm feed + tokens) → org secrets; non-shared → environment secrets. `internal-network-credentials` and `positions-db-credentials` are bound only to non-build workloads — **do not copy them into GitHub**. |
+| Variable groups | 10 groups (API `count` says 9 — one group is unaccounted for in the header), 14 secret values | all except 108, 117, 118 | Org/repo/environment secrets. Shared groups (`shared-ci-secrets`: NuGet/PyPI/npm feed + tokens) → org secrets; non-shared → environment secrets. `internal-network-credentials` and `positions-db-credentials` are bound only to non-build workloads — **do not copy them into GitHub**. |
 | Service connections | 5 (3× `azurerm` SP-key, 1 ACR, 1 GitHub PAT) | 101,102,104,106,107 (Azure); 108,109 (ACR) | Prefer OIDC federated credentials over copying SP keys. `GitHub-SourceMirror` has zero consumers → delete. ACR bindings on 108/109 are unused by their YAML → verify before recreating. |
 | Environments & checks | `dev` (none), `staging` (1 approver), `preprod` (2 approvers + business hours, **unused**), `prod` (2 approvers + business hours Mon–Thu + exclusive lock), `dev-frontend` (none), `staging-frontend` (1 approver) | 101,102,104,106,107 | GitHub Environments support required reviewers and (Enterprise) deployment branch policies, but **not business-hours windows or exclusive locks natively** — need `concurrency:` groups for the lock and a custom deployment-protection rule or scheduled gate for business hours. |
 | Retention | 30 days / min 5 (builds); **365 days** (107, 114) | | GHA artifact retention max is 90 days at the org level — 365-day audit retention for 107/114 requires external archival regardless of where they run. |
@@ -139,7 +139,7 @@ Accounts appearing as `last_modified_by` that are not people: `contractor-accoun
 | `team/reporting-hotfix` | 107 | **no** | extra compliance metadata steps | `team-build-custom.yml` on `main` already contains `generate_metadata.py`; branch may add more. |
 | `legacy/master-support` | 105, 117 | **no** | frozen | Both consumers are dead → delete branch with them. |
 
-Action: export these seven branches from the ADO `shared-ci-platform` repo (or confirm they were never mirrored) and diff `templates/` and `alt-templates/` against `main` before any "Migrate" pipeline is declared equivalent. The existing `validate-migration.yml` parity harness compares live ADO vs GHA runs, which sidesteps the question for behaviour, but not for reviewing what the templates *intend*.
+Action: export these seven branches from the ADO `shared-ci-platform` repo (or confirm they were never mirrored) and diff `templates/` and `alt-templates/` against `main` before any "Migrate" pipeline is declared equivalent. The existing `validate-migration.yml` parity harness compares run conclusions, test counts and artifact names between ADO and GHA; it does not cover deployment side effects, downstream writes (Artifactory/D2/attestation) or artifact contents, so it cannot substitute for reviewing the templates themselves.
 
 ### 7.4 Source referenced by pipelines but absent from the repo
 
@@ -157,7 +157,7 @@ Either these live in another repo checked out by an ADO-side resource not captur
 ## 8. Recommended sequencing
 
 1. **Ownership first** — assign 101, 108, 110, 111, 115 and get written confirmation for 112/113/114. Nothing else should be signed off without an owner.
-2. **Delete dead pipelines** (116, 117, 118, archive) immediately; retire 105 once its external trigger is found. Remove `legacy/master-support`, `team/quant-experiments`, `windows-build-workers`, `GitHub-SourceMirror`, and the `preprod` environment in the same sweep.
+2. **Delete dead pipelines** (116, 117, 118, archive) immediately; retire 105 once its external trigger is found. Remove `legacy/master-support`, `windows-build-workers`, `GitHub-SourceMirror`, and the `preprod` environment in the same sweep. Hold `team/quant-experiments` until it is exported and its history checked — `docs/branch-usage-notes.md` names scenario-runner/notebook-executor as possible consumers even though neither YAML on `main` references it.
 3. **Recover the template branches** from ADO and diff against `main`; fold the retry logic (`staging/preprod`) and SSR steps (`team/frontend-custom`) into `main` so there is one template lineage to migrate.
 4. **Migrate builds** in order of coupling: 109 → 108 → 103 → 106 → 102 → 104 → 101, running each in parallel with ADO under `validate-migration.yml` until parity holds. Reproduce Artifactory/D2/attestation calls as composite actions before the first release-stage migration.
 5. **Re-platform non-build workloads** (110–115, 107's report stage) onto a job scheduler with internal network access; keep them on ADO until then. Do not convert them to `schedule:` workflows.
