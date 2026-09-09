@@ -54,9 +54,9 @@ branch-drift entanglement and could be ported directly.
 | `DotNetCoreCLI@2 restore` `services/pricing-engine/**/*.sln` | `dotnet restore services/pricing-engine/PricingEngine.sln` (glob resolved to the single solution) |
 | `DotNetCoreCLI@2 build --configuration Release --no-restore` | `dotnet build "$SOLUTION" --configuration Release --no-restore` |
 | `DotNetCoreCLI@2 test` `**/*Tests/*.csproj` `--collect:"XPlat Code Coverage"` (template default `runTests: true`) | `dotnet test tests/PricingEngine.Tests/PricingEngine.Tests.csproj --no-build --logger trx --collect:"XPlat Code Coverage"` |
-| `DotNetCoreCLI@2 publish` `publishWebProjects: true` `--output $(Build.ArtifactStagingDirectory)` (ADO appends the project name → `…/a/PricingEngine/`) | `dotnet publish src/PricingEngine/PricingEngine.csproj --no-build --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine"` |
-| `PublishBuildArtifacts@1` `$(Build.ArtifactStagingDirectory)` → `pricing-engine-drop` | `actions/upload-artifact@v4` name `pricing-engine-drop`, path `$BUILD_ARTIFACTSTAGINGDIRECTORY` |
-| `script: publish_artifact.py --name … --registry Artifactory --build-id $(Build.BuildId)` | same script, `--build-id "$GITHUB_RUN_ID"`; runs **before** upload so the manifest lands inside the artifact (in ADO the manifest is written after upload and is therefore *not* in the drop — see gaps) |
+| `DotNetCoreCLI@2 publish` `publishWebProjects: true` `--output $(Build.ArtifactStagingDirectory)` (task default `zipAfterPublish: true` → `…/a/PricingEngine.zip`) | `dotnet publish src/PricingEngine/PricingEngine.csproj --no-build --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine"` followed by `zip -r PricingEngine.zip PricingEngine` |
+| `PublishBuildArtifacts@1` `$(Build.ArtifactStagingDirectory)` → `pricing-engine-drop` (1 file, `PricingEngine.zip`) | `actions/upload-artifact@v4` name `pricing-engine-drop`, path `$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine.zip` |
+| `script: publish_artifact.py --name … --registry Artifactory --build-id $(Build.BuildId)` (after upload; manifest stays on the agent) | same script, same order, `--build-id "$GITHUB_RUN_ID"`; the manifest is additionally uploaded as `pricing-engine-drop-manifest` so it is not lost |
 | — | `upload-artifact` `pricing-engine-test-results` (`*.trx`) and `pricing-engine-code-coverage` — ADO keeps these as test-run attachments; GHA has no test-run store |
 
 ### `Test` → job `test` (from `run-tests.yml@main`, `testFramework: generic`)
@@ -103,21 +103,19 @@ Same source tree (`d23e86d`, the scaffold branch) built by both systems:
 | --- | --- | --- |
 | restore / build | succeeded | succeeded |
 | unit tests | `Passed! Failed: 0, Passed: 36, Total: 36`, cobertura attachment | identical line, cobertura uploaded |
-| publish output | `/home/vsts/work/1/a/PricingEngine/` | `$RUNNER_TEMP/a/PricingEngine/` (8 files: `PricingEngine`, `.dll`, `.pdb`, `.deps.json`, `.runtimeconfig.json`, `.staticwebassets.endpoints.json`, `appsettings.json`, `web.config`) |
+| publish output | `/home/vsts/work/1/a/PricingEngine.zip` (run 30: 54,670 bytes, per `validation/baselines/pricing-engine/expected-artifacts.json`) | `$RUNNER_TEMP/a/PricingEngine.zip` (zip of the 8 published files: `PricingEngine`, `.dll`, `.pdb`, `.deps.json`, `.runtimeconfig.json`, `.staticwebassets.endpoints.json`, `appsettings.json`, `web.config`) |
 | Artifactory registration | `Manifest written to: /home/vsts/work/1/a/pricing-engine-drop-manifest.json` | `Manifest written to: /home/runner/work/_temp/a/pricing-engine-drop-manifest.json` |
-| artifact | `pricing-engine-drop` | `pricing-engine-drop` (52 KB) |
+| artifact | `pricing-engine-drop` (1 file) | `pricing-engine-drop` (1 file) + `pricing-engine-drop-manifest` |
 | Test stage | `PublishTestResults`: no `*.xml` found; normalize ran | `Normalized 0 test result files` |
 | Deploy stage | skipped (branch ≠ main) | skipped (branch ≠ main) |
 
 `deploy-dev` was exercised locally (scripts run with the workflow's env): D2 notify
 `OK`, attestation written and "uploaded".
 
-Validation scripts (`validation/scripts/compare_artifacts.py`,
-`compare_test_counts.py`) **fail** against `validation/baselines/pricing-engine/*`
-(expects 12 files / 5–50 MB / 187 tests; actual 8 files / 0.11 MB / 36 tests). The
-baselines date from 2024-08 and describe a different build of the service than the
-scaffold in `d23e86d`; they would fail the ADO output just the same and need
-re-baselining, not a workflow change.
+`validation/baselines/pricing-engine/*` (#26, `status: observed` from ADO run 30) expect
+1 artifact file `PricingEngine.zip` (0.026–0.104 MB) and 36/36 xunit tests, which is what
+this workflow produces. `validation/scripts/validate_migration.py` scores 7/7 for this
+service (the "Pipeline Migration Validation" check on the PR).
 
 ## Gaps and follow-ups
 
@@ -129,9 +127,9 @@ re-baselining, not a workflow change.
    (`generic` framework, trx not JUnit). The workflow keeps parity (trx as an artifact,
    normalizer sees 0 suites). To make `normalize_test_results.py` useful, add
    `JunitXml.TestLogger` to the test project and log `junit` into the results dir.
-4. **Manifest placement.** Registering before upload means `pricing-engine-drop` now
-   includes `pricing-engine-drop-manifest.json`; in ADO it was left on the agent.
-   Consumers that enumerate the drop should expect one extra JSON file.
+4. **Manifest placement.** `pricing-engine-drop` matches ADO (only `PricingEngine.zip`);
+   the Artifactory manifest, which ADO leaves on the agent, is published as a separate
+   `pricing-engine-drop-manifest` artifact.
 5. **Ownership** is still `unknown` (inventory R1); `shared-ci-platform` best-effort.
 6. ~~Local template copy `templates/build/build-dotnet.yml` is behind ADO `main`~~ —
    synced in #25.

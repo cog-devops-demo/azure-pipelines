@@ -46,9 +46,11 @@ jobs:
 
       - name: Map ADO agent variables
         run: |
-          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/a" >> "$GITHUB_ENV"
-          echo "AGENT_NAME=$RUNNER_NAME" >> "$GITHUB_ENV"
-          echo "AGENT_OS=$RUNNER_OS" >> "$GITHUB_ENV"
+          {
+            echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/a"
+            echo "AGENT_NAME=$RUNNER_NAME"
+            echo "AGENT_OS=$RUNNER_OS"
+          } >> "$GITHUB_ENV"
 
       - name: Install .NET SDK ${{ env.DOTNET_VERSION }}
         uses: actions/setup-dotnet@v4
@@ -74,6 +76,15 @@ jobs:
           dotnet publish services/pricing-engine/src/PricingEngine/PricingEngine.csproj \
             --configuration "$BUILD_CONFIGURATION" --no-build \
             --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/PricingEngine"
+          # DotNetCoreCLI@2 publish zips the output folder by default (zipAfterPublish)
+          (cd "$BUILD_ARTIFACTSTAGINGDIRECTORY" && zip -qr PricingEngine.zip PricingEngine && rm -rf PricingEngine)
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/PricingEngine.zip
+          if-no-files-found: error
 
       - name: Register artifact in Artifactory
         run: |
@@ -82,12 +93,11 @@ jobs:
             --registry Artifactory \
             --build-id "$GITHUB_RUN_ID"
 
-      - name: Upload build artifacts
+      - name: Upload artifact manifest
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
-          if-no-files-found: error
+          name: ${{ env.ARTIFACT_NAME }}-manifest
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/${{ env.ARTIFACT_NAME }}-manifest.json
 
       - name: Upload test results
         if: always()
