@@ -77,7 +77,7 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" != "push" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             echo "service_changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$SERVICE_DIR"; then
+          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- ":(top)$SERVICE_DIR"; then
             echo "service_changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "service_changed=true" >> "$GITHUB_OUTPUT"
