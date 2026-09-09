@@ -20,6 +20,10 @@ parameters:
     type: boolean
     default: true
 
+  - name: projectDirectory
+    type: string
+    default: '.'
+
 steps:
   - script: mkdir -p ${{ parameters.testResultsDir }}
     displayName: 'Create test results directory'
@@ -30,6 +34,7 @@ steps:
           --junitxml=${{ parameters.testResultsDir }}/results.xml \
           --tb=short
       displayName: 'Run pytest'
+      workingDirectory: ${{ parameters.projectDirectory }}
 
   - ${{ if eq(parameters.testFramework, 'junit') }}:
     - task: Maven@4

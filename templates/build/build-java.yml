@@ -20,6 +20,10 @@ parameters:
     type: string
     default: 'java-dist'
 
+  - name: projectDirectory
+    type: string
+    default: '.'
+
 steps:
   - task: JavaToolInstaller@0
     displayName: 'Install JDK ${{ parameters.jdkVersion }}'
@@ -31,7 +35,7 @@ steps:
   - task: Maven@4
     displayName: 'Maven ${{ parameters.mavenGoals }}'
     inputs:
-      mavenPomFile: 'pom.xml'
+      mavenPomFile: '${{ parameters.projectDirectory }}/pom.xml'
       goals: ${{ parameters.mavenGoals }}
       options: ${{ parameters.mavenOptions }}
       publishJUnitResults: ${{ parameters.runTests }}
@@ -39,8 +43,8 @@ steps:
 
   - ${{ if eq(parameters.publishArtifacts, true) }}:
     - script: |
-        cp target/*.jar $(Build.ArtifactStagingDirectory)/ 2>/dev/null || true
-        cp target/*.war $(Build.ArtifactStagingDirectory)/ 2>/dev/null || true
+        cp ${{ parameters.projectDirectory }}/target/*.jar $(Build.ArtifactStagingDirectory)/ 2>/dev/null || true
+        cp ${{ parameters.projectDirectory }}/target/*.war $(Build.ArtifactStagingDirectory)/ 2>/dev/null || true
       displayName: 'Stage build artifacts'
 
     - task: PublishBuildArtifacts@1
