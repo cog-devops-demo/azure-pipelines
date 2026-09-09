@@ -106,6 +106,10 @@ jobs:
                 SERVICE="regulatory-reporting"
                 ADO_PIPELINE="services/regulatory-reporting/azure-pipelines.yml"
                 ;;
+              attestation-backfill-weekly)
+                SERVICE="attestation-backfill"
+                ADO_PIPELINE="night-jobs/compliance/attestation-backfill.yml"
+                ;;
               *)
                 echo "No ADO mapping for $BASE — skipping"
                 continue

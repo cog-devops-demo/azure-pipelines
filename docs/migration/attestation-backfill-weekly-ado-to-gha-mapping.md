@@ -33,17 +33,35 @@ No other Category 5 pipeline is covered by this override.
 
 | ADO | GHA | Notes |
 |---|---|---|
-| `trigger: none` | (no `push` / `pull_request`) | Intentional: this is a scheduled operational job, not CI. The playbook's "add `on.pull_request`" rule is not applied — a PR must never run a live (non-dry-run) backfill against the attestation store. |
-| `schedules[0].cron: '0 3 * * 0'`, `branches: [main]`, `always: true` | `on.schedule: [{cron: '0 3 * * 0'}]` | GHA scheduled workflows always run from the default branch (`main`) and always run regardless of changes, matching `always: true`. Both are UTC. |
+| `trigger: none` | no `push` trigger | This is a scheduled operational job, not CI. |
+| — | `on.pull_request` (`branches: [main]`, paths: this workflow, `night-jobs/compliance/**`, `build-tools/compliance/**`) | Added as a **dry-run smoke test**: on `pull_request` the job runs on `ubuntu-latest`, `DRY_RUN=true` is passed to `backfill_attestations.py`, and the `Record backfill metadata` step (store upload) is skipped. A PR can never write to the attestation store. |
+| `schedules[0].cron: '0 3 * * 0'`, `branches: [main]`, `always: true` | `on.schedule: [{cron: '0 3 * * 0'}]` gated by `vars.ATTESTATION_BACKFILL_GHA_CUTOVER == 'true'` | GHA scheduled workflows always run from the default branch (`main`) and always run regardless of changes, matching `always: true`. Both are UTC. The job-level `if:` keeps the GHA schedule **inert until cutover** (see below) so ADO 114 and GHA never both run the live backfill. |
 | — | `on.workflow_dispatch` | Added so operators can trigger a manual re-run (ADO allowed manual queueing of any pipeline). |
 | — | `concurrency: {group: attestation-backfill-weekly, cancel-in-progress: false}` | Prevents a manual dispatch from overlapping the weekly run and double-writing attestations. |
+
+### Schedule cutover sequence (avoid duplicate weekly runs)
+
+ADO definition 114 is **enabled** and scheduled for the same Sunday 03:00 UTC slot
+(`docs/samples/ado-api-responses.json`). GHA `concurrency` cannot coordinate with ADO, so the
+GHA job carries `if: github.event_name != 'schedule' || vars.ATTESTATION_BACKFILL_GHA_CUTOVER == 'true'`.
+Until the repository variable exists and equals `true`, scheduled GHA runs are skipped;
+`workflow_dispatch` and `pull_request` runs are unaffected.
+
+1. Merge this PR. Scheduled GHA runs are skipped; ADO 114 keeps running.
+2. Optionally validate with a `workflow_dispatch` run **outside** the Sunday 03:00 window
+   (or after confirming the ADO run has finished — avg 93 min).
+3. In one change window (any time other than Sunday 02:00–06:00 UTC):
+   a. Disable the schedule on ADO definition 114 (or disable the definition).
+   b. Create repository variable `ATTESTATION_BACKFILL_GHA_CUTOVER=true`.
+4. Confirm the next Sunday run appears in GitHub Actions and not in ADO.
+5. Rollback = delete the variable (GHA schedule goes inert again) and re-enable ADO 114.
 
 ## Job / stage mapping
 
 | ADO | GHA |
 |---|---|
 | `jobs[0].job: BackfillAttestations` / `displayName: Backfill missing attestations` | `jobs.backfill-attestations` / `name: Backfill missing attestations` |
-| `pool.name: linux-build-workers` + `demands: Agent.OS -equals Linux` | `runs-on: [self-hosted, linux-build-workers]` |
+| `pool.name: linux-build-workers` + `demands: Agent.OS -equals Linux` | `runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' \|\| 'linux-build-workers' }}` — self-hosted `linux-build-workers` label for schedule/dispatch (R14 store access), hosted `ubuntu-latest` for PR dry-runs |
 | `timeoutInMinutes: 180` | `timeout-minutes: 180` |
 | step `timeoutInMinutes: 120` (Regenerate attestations) | step `timeout-minutes: 120` |
 
@@ -56,8 +74,8 @@ No other Category 5 pipeline is covered by this override.
 | 2 | `script: pip install requests pandas` | `run: pip install requests pandas` | Unchanged. |
 | — | `$(Build.ArtifactStagingDirectory)` created implicitly by the ADO agent | `Prepare staging directory`: `mkdir -p "$RUNNER_TEMP/staging"` and export `STAGING_DIR` via `$GITHUB_ENV` | GHA does not pre-create a staging dir; `runner` context is not available in job-level `env`, hence `$RUNNER_TEMP` + `GITHUB_ENV`. |
 | 3 | `script` "Scan for attestation gaps" → `scan_attestation_gaps.py --output $(Build.ArtifactStagingDirectory)/gaps.json` | same command with `--output "$STAGING_DIR/gaps.json"` | |
-| 4 | `script` "Regenerate attestations" → `backfill_attestations.py --gaps … --dry-run false` (`timeoutInMinutes: 120`) | same command, `timeout-minutes: 120` | Still `--dry-run false`; only ever runs on `schedule` / `workflow_dispatch`. |
-| 5 | `script` "Record backfill metadata" → `python $(Build.SourcesDirectory)/build-tools/compliance/generate_metadata.py --build-id $(Build.BuildId) …` | `python "$GITHUB_WORKSPACE/build-tools/compliance/generate_metadata.py" --build-id "${{ github.run_id }}" …` with ADO env shims (below) | Script unmodified. |
+| 4 | `script` "Regenerate attestations" → `backfill_attestations.py --gaps … --dry-run false` (`timeoutInMinutes: 120`) | same command with `--dry-run "$DRY_RUN"`, `timeout-minutes: 120` | `DRY_RUN` is `false` on `schedule`/`workflow_dispatch` (parity with ADO) and `true` on `pull_request`. |
+| 5 | `script` "Record backfill metadata" → `python $(Build.SourcesDirectory)/build-tools/compliance/generate_metadata.py --build-id $(Build.BuildId) …` | `python "$GITHUB_WORKSPACE/build-tools/compliance/generate_metadata.py" --build-id "${{ github.run_id }}" …` with ADO env shims (below); `if: github.event_name != 'pull_request'` | Script unmodified. Skipped on PR dry-runs so no metadata is uploaded to the store. |
 | 6 | `PublishBuildArtifacts@1` (`pathToPublish: $(Build.ArtifactStagingDirectory)`, `artifactName: attestation-backfill-report`, `condition: always()`) | `actions/upload-artifact@v4` (`name: attestation-backfill-report`, `path: ${{ runner.temp }}/staging`, `if: always()`, `retention-days: 365`, `if-no-files-found: warn`) | Retention set explicitly to satisfy R10 (ADO retention rule: 365 days / min 52 builds). |
 
 ## Variable / env-var mapping
@@ -68,7 +86,7 @@ They are shimmed on the "Record backfill metadata" step so the script runs unmod
 | ADO variable (env name read by script) | GHA value |
 |---|---|
 | `$(Build.DefinitionName)` → `BUILD_DEFINITIONNAME` | `${{ github.workflow }}` |
-| `$(Build.Repository.Name)` → `BUILD_REPOSITORY_NAME` | `${{ github.repository }}` |
+| `$(Build.Repository.Name)` → `BUILD_REPOSITORY_NAME` | `${{ github.event.repository.name }}` (repository name only, matching ADO's short name rather than `owner/repo`) |
 | `$(Build.SourceBranch)` → `BUILD_SOURCEBRANCH` | `${{ github.ref }}` |
 | `$(Build.SourceVersion)` → `BUILD_SOURCEVERSION` | `${{ github.sha }}` |
 | `$(Agent.Name)` → `AGENT_NAME` | `${{ runner.name }}` |
@@ -76,21 +94,24 @@ They are shimmed on the "Record backfill metadata" step so the script runs unmod
 | `$(Build.BuildId)` (CLI arg `--build-id`) | `${{ github.run_id }}` |
 | `$(Build.SourcesDirectory)` | `$GITHUB_WORKSPACE` |
 | — | `PIPELINE_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}` (provided for forward compatibility; the script does not currently build a URL) |
-| Variable group `compliance-store-credentials` (id 206) | `COMPLIANCE_STORE_TOKEN: ${{ secrets.COMPLIANCE_STORE_TOKEN }}` (job-level env) |
+| — | `DRY_RUN` = `'true'` on `pull_request`, else `'false'` |
+| Variable group `compliance-store-credentials` (id 206): `COMPLIANCE_STORE_URL` (plain) | job env `COMPLIANCE_STORE_URL: https://compliance-store.contoso-financial.com/api/v2` (value from the ADO API snapshot) |
+| group 206: `COMPLIANCE_STORE_TOKEN` (secret) | `${{ secrets.COMPLIANCE_STORE_TOKEN }}` |
+| group 206: `COMPLIANCE_STORE_CERT_THUMBPRINT` (secret) | `${{ secrets.COMPLIANCE_STORE_CERT_THUMBPRINT }}` |
 
-Note on the variable group: the ADO API snapshot (`docs/samples/ado-api-responses.json`)
-links variable group 206 to this pipeline but does not expose the variable names inside it,
-and none of the three scripts currently read any credential from the environment (they
-stub the store call). The GHA workflow therefore exposes a single placeholder secret,
-`COMPLIANCE_STORE_TOKEN`; rename/extend it to the real variable names when the
-attestation-database client is wired up.
+The three variable names/values come from the variable-group section of
+`docs/samples/ado-api-responses.json` (group 206 is shared with pipeline 107). None of the
+three scripts currently read them (the store call is stubbed), but they are exposed with the
+same names so the scripts keep working unchanged when the attestation-database client is
+wired up.
 
 ## Condition mapping
 
 | ADO | GHA |
 |---|---|
 | `condition: always()` on `PublishBuildArtifacts@1` | `if: always()` on `upload-artifact` |
-| (no other conditions) | — |
+| (implicit: ADO schedule enabled) | job `if: github.event_name != 'schedule' \|\| vars.ATTESTATION_BACKFILL_GHA_CUTOVER == 'true'` (cutover gate, see above) |
+| — | step `if: github.event_name != 'pull_request'` on `Record backfill metadata` |
 
 ## Integration points
 
@@ -103,20 +124,33 @@ attestation-database client is wired up.
 
 ## Known gaps / behavioural differences
 
-1. **Not a CI pipeline** — no `push`/`pull_request` triggers were added (intentional, see Trigger mapping). Validation of the workflow file therefore relies on `actionlint`, not on a PR run of the job itself.
+1. **PR dry-run is new behaviour** — ADO never ran this job on PRs. The GHA `pull_request` run is a hosted-runner smoke test (`DRY_RUN=true`, no metadata upload); it does not exercise store connectivity.
 2. **Schedule drift** — GHA `schedule` triggers can be delayed several minutes at the top of the hour under load and are disabled automatically after 60 days of repository inactivity. Neither affects ADO. Acceptable for a weekly compliance sweep; note it in the runbook.
 3. **Python on self-hosted runners** — `actions/setup-python` on self-hosted runners requires the runner tool cache to be populated (or falls back to downloading). Ensure `linux-build-workers` runners have Python 3.11 available.
 4. **Artifact retention ceiling** — `retention-days: 365` requires the repository/organization maximum artifact retention to be ≥ 365 days (org default is 90). If the org cap is lower, GHA silently clamps to the cap and R10 is not met — raise the org setting or ship the report to long-term storage.
 5. **ADO `minimumToKeep: 52` retention rule** has no GHA equivalent; retention is time-based only.
-6. **Concurrency** — ADO could run overlapping instances; the GHA workflow serialises them (`concurrency` group). This is a deliberate safety improvement, not parity.
+6. **Concurrency** — ADO could run overlapping instances; the GHA workflow serialises them (`concurrency` group). This is a deliberate safety improvement, not parity. It does **not** coordinate with ADO — hence the cutover gate.
 7. `if-no-files-found: warn` is added so a failed scan step still produces a (possibly empty) artifact upload without failing the `always()` publish step.
+8. **`BUILD_REPOSITORY_NAME`** — ADO reported `shared-ci-platform`; GHA reports the GitHub repository name (`azure-pipelines`). Metadata consumers that key on repository name will see the new name from the first GHA run.
+
+## Migration-validator scorecard (validate-migration)
+
+`validation/scripts/validate_migration.py` was written for CI pipelines. Three checks cannot
+pass for this pipeline without changing the validator, which is out of scope:
+
+| Check | Result | Why |
+|---|---|---|
+| Stage → Job Mapping | FAIL `0/0 ADO stages mapped to GHA jobs` | The ADO YAML is jobs-only (no `stages:`), so the validator counts 0 ADO stages vs 1 GHA job. The single ADO job maps 1:1 to the single GHA job. |
+| Artifact Baseline | FAIL `No artifact baseline found` | No `validation/baselines/attestation-backfill/expected-artifacts.json` exists. The validator rejects provisional/placeholder baselines, so one must be **measured from a real run** (expected: 2 `.json` files — `gaps.json`, `attestation-backfill-compliance-metadata.json`) and added by the owning team. |
+| Test Baseline | FAIL `No test baseline found` | The pipeline has no test step in ADO or GHA; a test baseline is not applicable. |
 
 ## Secrets & runner prerequisites
 
 | Item | Where | Purpose |
 |---|---|---|
-| `COMPLIANCE_STORE_TOKEN` | Repository / environment secret | Placeholder for the `compliance-store-credentials` variable group (see note above). |
-| Self-hosted runner with labels `self-hosted`, `linux-build-workers` | Org/repo runner group | R14 — network access to attestation-database. `.github/actionlint.yaml` declares the custom label so `actionlint` passes. |
+| `COMPLIANCE_STORE_TOKEN`, `COMPLIANCE_STORE_CERT_THUMBPRINT` | Repository / environment secrets | Secret members of the `compliance-store-credentials` variable group. |
+| `ATTESTATION_BACKFILL_GHA_CUTOVER` | Repository variable (`vars`) | Set to `true` when the ADO schedule is disabled; enables scheduled GHA runs. |
+| Self-hosted runner with label `linux-build-workers` | Org/repo runner group | R14 — network access to attestation-database. |
 | Python 3.11 in the runner tool cache | Runner image | Required by `actions/setup-python@v5` on self-hosted runners. |
 | Artifact retention limit ≥ 365 days | Org / repo settings | R10 audit retention. |
 
@@ -129,7 +163,7 @@ are argument-driven and unchanged.
 
 ## Verification performed
 
-- `actionlint` passes on the new workflow (with `.github/actionlint.yaml` runner label).
+- `actionlint` passes on the new workflow.
 - The four script steps were executed locally in sequence with the same arguments and env
   shims; `gaps.json` and `attestation-backfill-compliance-metadata.json` were produced in
   the staging directory as expected.

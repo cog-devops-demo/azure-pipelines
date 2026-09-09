@@ -22,6 +22,14 @@ on:
     - cron: '0 3 * * 0'
   # ADO had trigger: none; workflow_dispatch gives operators a manual re-run path.
   workflow_dispatch:
+  # Not in ADO. PR builds run the job in DRY-RUN mode (no store writes, no
+  # metadata upload) as a smoke test of the workflow and its scripts.
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/attestation-backfill-weekly.yml'
+      - 'night-jobs/compliance/**'
+      - 'build-tools/compliance/**'
 
 permissions:
   contents: read
@@ -34,13 +42,24 @@ jobs:
   # --- mapped from: job BackfillAttestations ('Backfill missing attestations') ---
   backfill-attestations:
     name: Backfill missing attestations
+    # Cutover gate: the ADO definition (114) is still enabled on the same Sunday
+    # 03:00 UTC slot. The GHA schedule stays inert until the repository variable
+    # ATTESTATION_BACKFILL_GHA_CUTOVER is set to 'true' (set it in the same change
+    # window in which the ADO schedule is disabled). Manual and PR runs are unaffected.
+    if: github.event_name != 'schedule' || vars.ATTESTATION_BACKFILL_GHA_CUTOVER == 'true'
     # --- mapped from: pool.name 'linux-build-workers' + demands Agent.OS -equals Linux ---
-    runs-on: [self-hosted, linux-build-workers]
+    # Scheduled/manual runs need compliance-store network access -> self-hosted
+    # linux-build-workers (R14). PR dry-runs touch no store, so they use a hosted runner.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'linux-build-workers' }}
     # --- mapped from: timeoutInMinutes: 180 ---
     timeout-minutes: 180
     env:
       # --- mapped from: variable group compliance-store-credentials (id 206) ---
+      COMPLIANCE_STORE_URL: https://compliance-store.contoso-financial.com/api/v2
       COMPLIANCE_STORE_TOKEN: ${{ secrets.COMPLIANCE_STORE_TOKEN }}
+      COMPLIANCE_STORE_CERT_THUMBPRINT: ${{ secrets.COMPLIANCE_STORE_CERT_THUMBPRINT }}
+      # --- mapped from: script arg --dry-run false (forced to true on pull_request) ---
+      DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
     steps:
       # --- mapped from: implicit ADO checkout ---
       - name: Checkout
@@ -79,14 +98,15 @@ jobs:
           python night-jobs/compliance/scripts/backfill_attestations.py \
             --gaps "$STAGING_DIR/gaps.json" \
             --store attestation-database \
-            --dry-run false
+            --dry-run "$DRY_RUN"
 
       # --- mapped from: script 'Record backfill metadata' (build-tools/compliance/generate_metadata.py) ---
       - name: Record backfill metadata
+        if: github.event_name != 'pull_request'
         env:
           # ADO env shims read by generate_metadata.py
           BUILD_DEFINITIONNAME: ${{ github.workflow }}
-          BUILD_REPOSITORY_NAME: ${{ github.repository }}
+          BUILD_REPOSITORY_NAME: ${{ github.event.repository.name }}
           BUILD_SOURCEBRANCH: ${{ github.ref }}
           BUILD_SOURCEVERSION: ${{ github.sha }}
           AGENT_NAME: ${{ runner.name }}

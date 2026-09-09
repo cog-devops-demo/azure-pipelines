@@ -1,4 +1,0 @@
-# Custom runner labels for self-hosted runners (mirrors ADO agent pools).
-self-hosted-runner:
-  labels:
-    - linux-build-workers
