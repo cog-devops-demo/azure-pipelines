@@ -1,0 +1,16 @@
+{
+  "service": "risk-batch",
+  "expected_test_suites": 1,
+  "expected_total_tests": 12,
+  "expected_passed_tests": 12,
+  "minimum_pass_rate": 1.0,
+  "frameworks": [
+    "pytest"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "two ADO pytest test runs of 6 tests (build template and test template)",
+  "ado_build_id": 34,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09"
+}
