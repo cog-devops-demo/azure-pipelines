@@ -43,11 +43,7 @@ stages:
             parameters:
               testFramework: 'pytest'
 
-  - stage: Release
-    displayName: 'Deploy to dev'
-    dependsOn: Build
-    jobs:
-      - template: templates/release/release-standard.yml@templates
-        parameters:
-          environment: 'dev'
-          artifactName: $(artifactName)
+  - template: templates/release/release-standard.yml@templates
+    parameters:
+      environment: 'dev'
+      artifactName: $(artifactName)

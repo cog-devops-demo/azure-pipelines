@@ -40,21 +40,13 @@ stages:
               enableSSR: true
               artifactName: $(artifactName)
 
-  - stage: Deploy_Dev
-    displayName: 'Deploy to dev'
-    dependsOn: Build
-    jobs:
-      - template: alt-templates/frontend/frontend-deploy.yml@templates
-        parameters:
-          environment: 'dev'
-          artifactName: $(artifactName)
+  - template: alt-templates/frontend/frontend-deploy.yml@templates
+    parameters:
+      environment: 'dev'
+      artifactName: $(artifactName)
 
-  - stage: Deploy_Staging
-    displayName: 'Deploy to staging'
-    dependsOn: Deploy_Dev
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    jobs:
-      - template: alt-templates/frontend/frontend-deploy.yml@templates
-        parameters:
-          environment: 'staging'
-          artifactName: $(artifactName)
+  # NOTE: frontend-deploy.yml has no condition parameter; the former main-branch-only guard on staging is lost (tracked as migration gap).
+  - template: alt-templates/frontend/frontend-deploy.yml@templates
+    parameters:
+      environment: 'staging'
+      artifactName: $(artifactName)

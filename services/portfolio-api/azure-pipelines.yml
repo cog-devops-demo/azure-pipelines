@@ -37,11 +37,7 @@ stages:
               mavenGoal: 'package'
               artifactName: $(artifactName)
 
-  - stage: Release
-    displayName: 'Release to staging'
-    dependsOn: Build
-    jobs:
-      - template: templates/release/release-standard.yml@templates
-        parameters:
-          environment: 'staging'
-          artifactName: $(artifactName)
+  - template: templates/release/release-standard.yml@templates
+    parameters:
+      environment: 'staging'
+      artifactName: $(artifactName)

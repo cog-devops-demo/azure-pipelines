@@ -49,12 +49,8 @@ stages:
             parameters:
               testFramework: 'generic'
 
-  - stage: Deploy_Dev
-    displayName: 'Deploy to dev'
-    dependsOn: Test
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    jobs:
-      - template: templates/release/release-standard.yml@templates
-        parameters:
-          environment: 'dev'
-          artifactName: $(artifactName)
+  - template: templates/release/release-standard.yml@templates
+    parameters:
+      environment: 'dev'
+      artifactName: $(artifactName)
+      requireApproval: true
