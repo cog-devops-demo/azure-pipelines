@@ -43,6 +43,7 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/portfolio-api-canary.yml'
       - 'services/portfolio-api/**'
       - 'templates/build/build-java.yml'
 

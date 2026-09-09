@@ -68,7 +68,7 @@ those live in `templates/release/*.yml`, which the canary never references.
 |---|---|---|
 | `trigger: none` | no `push` trigger | 1:1 |
 | `parameters.templateBranch` (string, default `main`, values `main` / `master` / `staging/preprod` / `staging/release-hardening`) | `on.workflow_dispatch.inputs.template_branch` (`type: choice`, same default and values, **plus `all`**) | `all` fans out to a 4-way matrix — the canary's purpose (compare branches) in one run. **Intentional addition.** |
-| — | `on.pull_request` (`branches: [main]`, `paths: services/portfolio-api/**, templates/build/build-java.yml`) | **Intentional addition** per migration policy. PR runs resolve to the `main` variant only (`inputs` is empty) and never register artifacts. |
+| — | `on.pull_request` (`branches: [main]`, `paths: .github/workflows/portfolio-api-canary.yml, services/portfolio-api/**, templates/build/build-java.yml`) | **Intentional addition** per migration policy. PR runs resolve to the `main` variant only (`inputs` is empty) and never register artifacts. |
 | VG 201 `shared-ci-secrets` | not mapped | No expanded step reads it; nothing to configure. |
 
 ## 3. Stage / job mapping
