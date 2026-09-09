@@ -1,0 +1,7 @@
+[
+  "tests/test_reports.py::test_builds_one_record_per_jurisdiction",
+  "tests/test_reports.py::test_elevated_volume_threshold",
+  "tests/test_reports.py::test_empty_jurisdiction_is_flagged",
+  "tests/test_reports.py::test_standard_level_ignores_volume_threshold",
+  "tests/test_reports.py::test_unknown_compliance_level_rejected"
+]

@@ -84,8 +84,10 @@ jobs:
           python-version: '3.11'
 
       # --- mapped from: script 'Build and test (Python)' (`${{ if eq(parameters.language, 'python') }}`) ---
-      # Runs from the repo root exactly as the ADO template does (template paths are not service-scoped).
+      # The shared ADO template runs these from the checkout root; the sources live under
+      # services/regulatory-reporting, so the service directory is used here.
       - name: Build and test (Python)
+        working-directory: ${{ env.SERVICE_DIR }}
         run: |
           pip install -r requirements.txt
           pytest tests/ -v
