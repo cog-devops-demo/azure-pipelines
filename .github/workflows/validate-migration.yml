@@ -11,6 +11,12 @@ on:
       - '.github/workflows/**'
       - 'services/**/azure-pipelines.yml'
       - 'validation/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'services/**/azure-pipelines.yml'
+      - 'validation/**'
   workflow_dispatch:
 
 permissions:
@@ -61,8 +67,13 @@ jobs:
 
       - name: Detect changed workflows
         id: detect
+        env:
+          DIFF_RANGE: ${{ github.event_name == 'push' && format('{0}..{1}', github.event.before, github.sha) || 'origin/main...HEAD' }}
         run: |
-          WORKFLOWS=$(git diff --name-only origin/main...HEAD -- '.github/workflows/*.yml' | tr '\n' ' ')
+          if ! git rev-parse --verify -q "${DIFF_RANGE%%..*}^{commit}" >/dev/null; then
+            DIFF_RANGE="HEAD~1..HEAD"   # first push on a branch has no "before" commit
+          fi
+          WORKFLOWS=$(git diff --name-only "$DIFF_RANGE" -- '.github/workflows/*.yml' | tr '\n' ' ')
           echo "workflows=$WORKFLOWS" >> "$GITHUB_OUTPUT"
           echo "Found changed workflows: $WORKFLOWS"
 
@@ -174,6 +185,7 @@ jobs:
           ADO_ORG: ${{ vars.ADO_ORG || 'danagajewski' }}
           ADO_PROJECT: ${{ vars.ADO_PROJECT || 'danagajewski-demo' }}
           PARITY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PARITY_PR: ${{ github.event.pull_request.number }}
         run: |
           [ -f /tmp/parity-targets.txt ] || exit 0
           MISMATCH=0
@@ -187,11 +199,14 @@ jobs:
               --ado-pipeline "$ADO_NAME" \
               --gh-repo "$GITHUB_REPOSITORY" \
               --gh-workflow "$WORKFLOW_FILE" \
-              --sha "$PARITY_SHA")
+              --sha "$PARITY_SHA" \
+              --wait-seconds 600 \
+              ${PARITY_PR:+--pr "$PARITY_PR"})
             STATUS=$?
             set -e
             [ $STATUS -eq 0 ] || MISMATCH=1
             printf '\n%s\n' "$OUT" >> /tmp/validation-report.md
+            printf '\n%s\n' "$OUT" >> "$GITHUB_STEP_SUMMARY"
           done < /tmp/parity-targets.txt
           echo "mismatch=$MISMATCH" >> "$GITHUB_OUTPUT"
 

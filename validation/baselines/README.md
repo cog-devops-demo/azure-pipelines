@@ -1,8 +1,11 @@
 # Validation baselines
 
 Equivalence is decided by runtime parity: `validation/scripts/parity_report.py` reads the live
-Azure DevOps run and the live GitHub Actions run of the *same commit* and compares result, test
-count and artifacts. These files are the fallback for when no such pair of runs exists.
+Azure DevOps run and the live GitHub Actions run of the *same source revision* and compares
+result, test count and artifacts. On a push to `main` that is literally the same commit id; on a
+pull request Azure DevOps builds the `refs/pull/<n>/merge` commit instead, so the two runs are
+paired by the pull request's head commit (`pr.sourceSha`) and the report names the merge commit
+it used. These files are the fallback for when no such pair of runs exists.
 
 Each `<service>/expected-artifacts.json` and `<service>/test-counts.json` records what the
 Azure DevOps pipeline for that service produced on one earlier run. They are advisory: the
