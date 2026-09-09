@@ -41,8 +41,10 @@ jobs:
         id: lint
         run: |
           set +e
+          # shellcheck disable=SC2016  # the Go template is passed to actionlint verbatim
           LINT_OUTPUT=$(actionlint -format '{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}}%0A{{end}}' 2>&1)
           LINT_EXIT=$?
+          printf '%s\n' "$LINT_OUTPUT"
           echo "exit_code=$LINT_EXIT" >> "$GITHUB_OUTPUT"
           if [ $LINT_EXIT -ne 0 ]; then
             echo "### actionlint found issues:" >> "$GITHUB_STEP_SUMMARY"
@@ -69,7 +71,6 @@ jobs:
           CHANGED_WORKFLOWS: ${{ steps.detect.outputs.workflows }}
         run: |
           REPORT=""
-          EXIT=0
 
           # Map workflow names to services/ADO pipelines
           for wf in $CHANGED_WORKFLOWS; do
