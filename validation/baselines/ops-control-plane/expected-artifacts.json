@@ -1,0 +1,18 @@
+{
+  "artifact_name": "ops-control-plane-binary",
+  "service": "ops-control-plane",
+  "expected_file_count": 1,
+  "expected_file_types": [],
+  "expected_contents": [
+    "ops-control-plane"
+  ],
+  "observed_artifact_size_bytes": 4944024,
+  "min_artifact_size_mb": 2.3575,
+  "max_artifact_size_mb": 9.43,
+  "status": "observed",
+  "source": "azure-devops-run",
+  "ado_build_id": 32,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09",
+  "updated_by": "ado-run-capture"
+}

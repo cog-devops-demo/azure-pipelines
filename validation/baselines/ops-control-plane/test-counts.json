@@ -1,0 +1,16 @@
+{
+  "service": "ops-control-plane",
+  "expected_test_suites": 1,
+  "expected_total_tests": 7,
+  "expected_passed_tests": 7,
+  "minimum_pass_rate": 1.0,
+  "frameworks": [
+    "go-test"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "`go test` output in build log (Run tests): 1 test function with 6 subtests",
+  "ado_build_id": 32,
+  "ado_commit": "b00a483a",
+  "last_updated": "2026-09-09"
+}
