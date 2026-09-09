@@ -15,7 +15,14 @@
 name: bulk-reprocess-trades
 
 # --- mapped from: trigger: none + parameters: (manual run with runtime parameters) ---
+# pull_request is an intentional addition scoped to this file: it runs a smoke
+# pass (checkout + Python + dependency install) on a hosted runner and skips the
+# multi-hour reprocess and artifact upload, which only run on workflow_dispatch.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/bulk-reprocess-trades.yml'
   workflow_dispatch:
     inputs:
       startDate:
@@ -53,7 +60,7 @@ jobs:
   reprocess-trades:
     name: Bulk reprocess trades
     # --- mapped from: pool vmImage ubuntu-latest (self-hosted required — 480 min > 360 min hosted limit) ---
-    runs-on: self-hosted
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "linux"]') || 'ubuntu-latest' }}
     # --- mapped from: timeoutInMinutes: 480 ---
     timeout-minutes: 480
     steps:
@@ -81,13 +88,16 @@ jobs:
 
       # --- mapped from: script 'Reprocess trades' (timeoutInMinutes: 420) ---
       - name: Reprocess trades
+        if: github.event_name == 'workflow_dispatch'
         timeout-minutes: 420
         env:
           START_DATE: ${{ inputs.startDate }}
           END_DATE: ${{ inputs.endDate }}
           TRADE_TYPES: ${{ inputs.tradeTypes }}
           # --- mapped from: variable group 'internal-network-credentials' (id 207) ---
-          INTERNAL_NETWORK_CREDENTIALS: ${{ secrets.INTERNAL_NETWORK_CREDENTIALS }}
+          INTERNAL_SVC_ACCOUNT: ${{ vars.INTERNAL_SVC_ACCOUNT }}
+          INTERNAL_SVC_PASSWORD: ${{ secrets.INTERNAL_SVC_PASSWORD }}
+          INTERNAL_CA_CERT_PATH: ${{ vars.INTERNAL_CA_CERT_PATH || '/etc/ssl/certs/contoso-internal-ca.pem' }}
         run: |
           echo "Reprocessing trades from $START_DATE to $END_DATE"
           echo "Trade types: $TRADE_TYPES"
@@ -99,8 +109,11 @@ jobs:
 
       # --- mapped from: PublishBuildArtifacts@1 ('Archive reprocessed data', artifactName: reprocessed-trades) ---
       - name: Archive reprocessed data
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: reprocessed-trades
           path: ${{ runner.temp }}/staging
           if-no-files-found: warn
+          # --- mapped from: ADO retention rule daysToKeep: 90 ---
+          retention-days: 90

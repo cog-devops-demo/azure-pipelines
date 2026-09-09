@@ -106,6 +106,10 @@ jobs:
                 SERVICE="regulatory-reporting"
                 ADO_PIPELINE="services/regulatory-reporting/azure-pipelines.yml"
                 ;;
+              bulk-reprocess-trades)
+                SERVICE="bulk-reprocess-trades"
+                ADO_PIPELINE="adhoc/bulk-reprocess-trades.yml"
+                ;;
               *)
                 echo "No ADO mapping for $BASE — skipping"
                 continue
