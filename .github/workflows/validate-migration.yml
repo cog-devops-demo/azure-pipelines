@@ -30,8 +30,11 @@ jobs:
         run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
 
       - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: '1.7.7'
         run: |
-          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          curl -sSL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash" -o /tmp/download-actionlint.bash
+          bash /tmp/download-actionlint.bash "$ACTIONLINT_VERSION"
           sudo mv actionlint /usr/local/bin/
 
       - name: Lint all GHA workflows
@@ -62,12 +65,14 @@ jobs:
 
       - name: Run migration validation
         id: validate
+        env:
+          CHANGED_WORKFLOWS: ${{ steps.detect.outputs.workflows }}
         run: |
           REPORT=""
           EXIT=0
 
           # Map workflow names to services/ADO pipelines
-          for wf in ${{ steps.detect.outputs.workflows }}; do
+          for wf in $CHANGED_WORKFLOWS; do
             SERVICE=""
             ADO_PIPELINE=""
 
@@ -128,7 +133,7 @@ jobs:
           done
 
           # Full scan on manual dispatch only
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "${{ steps.detect.outputs.workflows }}" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -z "$CHANGED_WORKFLOWS" ]; then
             for wf in .github/workflows/*-ci.yml; do
               [ -f "$wf" ] || continue
               BASE=$(basename "$wf" .yml)
@@ -154,6 +159,9 @@ jobs:
           # Write report to file (PR comment body has a size limit)
           echo "$REPORT" > /tmp/validation-report.md
           cat /tmp/validation-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+          FAILED=$(grep -c '| FAIL |' /tmp/validation-report.md || true)
+          echo "failed_checks=$FAILED" >> "$GITHUB_OUTPUT"
 
       - name: Post validation report to PR
         if: github.event_name == 'pull_request'
@@ -190,6 +198,23 @@ jobs:
                 body,
               });
             }
+
+      - name: Fail on lint or scorecard failures
+        if: always() && steps.validate.outcome != 'skipped'
+        env:
+          LINT_EXIT: ${{ steps.lint.outputs.exit_code }}
+          FAILED_CHECKS: ${{ steps.validate.outputs.failed_checks }}
+        run: |
+          STATUS=0
+          if [ "${LINT_EXIT:-0}" != "0" ]; then
+            echo "actionlint reported problems"
+            STATUS=1
+          fi
+          if [ "${FAILED_CHECKS:-0}" != "0" ]; then
+            echo "$FAILED_CHECKS scorecard check(s) failed — see the validation report"
+            STATUS=1
+          fi
+          exit $STATUS
 
       - name: Upload validation report
         if: always()
