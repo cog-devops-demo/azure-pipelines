@@ -174,6 +174,13 @@ No changes were required in `build-tools/`:
 8. **Validation baselines:** `validation/baselines/regulatory-reporting/` does not exist and there is no service
    source in the repo to measure one from, so the *Artifact Baseline* / *Test Baseline* scorecard checks report
    FAIL. A baseline must be measured from a real run rather than invented.
+9. **Pre-existing (preserved from ADO):** `build-tools/compliance/generate_metadata.py` and
+   `build-tools/scripts/generate_attestation.py` only write local JSON and print a success message — nothing is
+   actually persisted to the attestation database. The ADO pipeline has the same behaviour; the shared helpers were
+   not changed (backward compatibility with ADO callers). Follow-up for team-reporting.
+10. **Service scaffold:** `services/regulatory-reporting/` is a minimal runnable scaffold added so the ported build
+    commands have sources to execute against. `generate_reports.py` uses fixture counts (`LEDGER`) and does not read
+    `REPORTING_DB_CONNECTION_STRING`; the real report generator lives outside this repo.
 
 ## Secrets / variables required
 
