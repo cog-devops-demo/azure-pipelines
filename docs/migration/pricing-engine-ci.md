@@ -31,9 +31,9 @@ branch-drift entanglement and could be ported directly.
   (`NuGetCommand@2` needs mono on ubuntu-24.04); the template was fixed on ADO `main`
   and run 11 passed. The workflow follows the live template (`dotnet restore`).
 - Runs: 5 failed (NuGet/mono), 11 succeeded (branch with the .NET scaffold),
-  15 failed on `main` with `No files matched the search pattern` — **`main` contains no
-  .NET source under `services/pricing-engine/`**, only the pipeline YAML. The GHA
-  workflow will fail identically on `main` until the service source is present.
+  15 failed on `main` with `No files matched the search pattern` — at that time `main`
+  had no .NET source under `services/pricing-engine/`, only the pipeline YAML. #25 has
+  since restored the scaffold on `main`.
 
 ## Trigger
 
