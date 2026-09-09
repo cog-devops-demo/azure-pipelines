@@ -23,6 +23,10 @@ parameters:
     type: boolean
     default: true
 
+  - name: projectDirectory
+    type: string
+    default: '.'
+
 steps:
   - task: UsePythonVersion@0
     displayName: 'Use Python ${{ parameters.pythonVersion }}'
@@ -40,15 +44,17 @@ steps:
         flake8 src/ --max-line-length=120
         black --check src/
       displayName: 'Run linting checks'
+      workingDirectory: ${{ parameters.projectDirectory }}
 
   - ${{ if eq(parameters.runTests, true) }}:
     - script: |
-        pip install pytest pytest-cov pytest-junitxml
+        pip install pytest pytest-cov
         pytest tests/ \
           --junitxml=$(Build.ArtifactStagingDirectory)/test-results.xml \
           --cov=src/ \
           --cov-report=xml:$(Build.ArtifactStagingDirectory)/coverage.xml
       displayName: 'Run tests with coverage'
+      workingDirectory: ${{ parameters.projectDirectory }}
 
     - task: PublishTestResults@2
       displayName: 'Publish test results'
@@ -62,6 +68,7 @@ steps:
         python setup.py sdist bdist_wheel
         cp -r dist/ $(Build.ArtifactStagingDirectory)/dist/
       displayName: 'Build distribution'
+      workingDirectory: ${{ parameters.projectDirectory }}
 
     - task: PublishBuildArtifacts@1
       displayName: 'Upload artifacts'
