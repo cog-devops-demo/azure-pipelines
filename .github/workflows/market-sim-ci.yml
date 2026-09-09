@@ -17,12 +17,14 @@ on:
       - main
     paths:
       - 'services/market-sim/**'
+      - '.github/workflows/market-sim-ci.yml'
   # Added during migration: the ADO pipeline had no PR trigger; this gives earlier CI feedback.
   pull_request:
     branches:
       - main
     paths:
       - 'services/market-sim/**'
+      - '.github/workflows/market-sim-ci.yml'
   workflow_dispatch:
 
 permissions:

@@ -29,7 +29,7 @@ expand. Pipeline metadata was taken from `docs/pipeline-inventory-report.md` and
 | ADO | GHA | Notes |
 |---|---|---|
 | `trigger.branches.include: [main]` | `on.push.branches: [main]` | |
-| `trigger.paths.include: [services/market-sim/**]` | `on.push.paths: ['services/market-sim/**']` | GHA path filters support `**` natively |
+| `trigger.paths.include: [services/market-sim/**]` | `on.push.paths: ['services/market-sim/**', '.github/workflows/market-sim-ci.yml']` | GHA path filters support `**` natively. **Intentional addition**: the workflow file itself, so workflow-only edits are exercised |
 | *(none)* | `on.pull_request` (branches `main`, same path filter) | **Intentional addition** — earlier CI feedback on PRs |
 | *(none)* | `on.workflow_dispatch` | **Intentional addition** — manual re-run |
 
@@ -114,12 +114,9 @@ protects against `workflow_dispatch` runs on `main`.
   snapshot but nothing in the YAML uses it; nothing was added in GHA.
 - **Artifact retention**: ADO retention policy vs GHA default 90 days — adjust
   `retention-days` if the ADO policy differs.
-- **No Rust source on `main`**: `services/market-sim/` currently contains only the ADO
-  YAML, so the workflow will fail at `cargo fetch` until the crate is committed. Path
-  filtering means the workflow does not trigger on this PR.
-- `validation/baselines/market-sim/*` values were carried over from the measured run in the
-  earlier migration attempt (PR #3: 1 release binary ≈473 KB, 4 `cargo test` tests against
-  the scaffold in COG-GTM/azure-pipelines#12); re-measure once the crate lands here.
+- `validation/baselines/market-sim/*` are the values observed from a real ADO run
+  (build 31, commit `b00a483a`, from PR #26): 1 extensionless binary of 486168 bytes,
+  4 `cargo test` tests.
 
 ## Secrets required
 
