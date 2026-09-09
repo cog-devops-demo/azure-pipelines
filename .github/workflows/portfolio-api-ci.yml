@@ -17,12 +17,14 @@ name: portfolio-api-ci
 
 on:
   # --- mapped from: trigger.branches.include [main, master] / trigger.paths.include [services/portfolio-api/**] ---
+  # Added during migration so workflow edits are exercised
   push:
     branches:
       - main
       - master
     paths:
       - 'services/portfolio-api/**'
+      - '.github/workflows/portfolio-api-ci.yml'
   # Added during migration: the ADO pipeline had no PR trigger.
   pull_request:
     branches:
@@ -30,6 +32,7 @@ on:
       - master
     paths:
       - 'services/portfolio-api/**'
+      - '.github/workflows/portfolio-api-ci.yml'
   workflow_dispatch:
 
 permissions:

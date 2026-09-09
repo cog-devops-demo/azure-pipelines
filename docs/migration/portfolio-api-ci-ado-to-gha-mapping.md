@@ -28,14 +28,15 @@ test results before proceeding.
 | ADO | GHA | Note |
 |---|---|---|
 | `trigger.branches.include: [main, master]` | `on.push.branches: [main, master]` | Both source branches preserved. |
-| `trigger.paths.include: [services/portfolio-api/**]` | `on.push.paths` + same list under `on.pull_request.paths` | Exact ADO path filter retained for both events. |
+| `trigger.paths.include: [services/portfolio-api/**]` | `on.push.paths` + same service path and workflow path under `on.pull_request.paths` | Exact ADO service path retained for both events; the workflow path is added so workflow edits are exercised. |
 | *(none)* | `on.pull_request.branches: [main, master]` | Added during migration. PR runs build/test/upload only; registration and deploy are push-only. |
 | *(none)* | `workflow_dispatch` | Added for manual runs. |
 | *(none)* | `concurrency` group per ref, cancel-in-progress on PRs | Added to avoid overlapping PR runs. |
 
-The workflow does not self-trigger on this pull request because the ADO path
-filter excludes the workflow file itself. Changes to `.github/workflows/` must
-be exercised by a later matching service change or by `workflow_dispatch`.
+The workflow file is included in both event path filters as a migration
+addition, so edits to the workflow itself are exercised. Helper-script changes
+remain outside the filter and require a matching service change or
+`workflow_dispatch`.
 
 ## 2. Variables
 
@@ -153,7 +154,7 @@ registry or compliance-store calls.
 | **G3** | The ADO template reference points to deleted `master`; template expansion therefore uses `main` plus documented master drift. | Master-faithful display names and registry argument are retained in the workflow. |
 | **G4** | ADO Tests tab results are represented by a GitHub artifact. | Consumers must download `portfolio-api-test-results` to inspect XML. |
 | **G5** | ADO ran only on push; GHA also runs build/test on pull requests and `workflow_dispatch`. | Registration and deployment remain push-only. |
-| **G6** | The workflow path filter intentionally remains exactly `services/portfolio-api/**`. | The workflow does not self-trigger on this PR because its own path is outside that filter. Use a matching service change or `workflow_dispatch` to exercise it. |
+| **G6** | The ADO service path filter remains exact, with the workflow file added as a migration path. | Workflow edits trigger this workflow; helper-script edits remain outside the filter and require a matching service change or `workflow_dispatch`. |
 
 ## 10. Required GitHub configuration
 
