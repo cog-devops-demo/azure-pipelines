@@ -22,11 +22,11 @@ pipelines exist*. Per-branch template divergence is in the appendix.
 
 | Disposition | Count | IDs |
 | --- | --- | --- |
-| Migrate to GitHub Actions | 9 | 101, 102, 103, 106, 107, 108, 109, 114, 115 |
+| Migrate to GitHub Actions | 10 | 101, 102, 103, 104, 106, 107, 108, 109, 114, 115 |
 | Leave on ADO / wrong platform (needs a compute platform, not CI) | 4 | 110, 111, 112, 113 |
 | Dead — retire, do not migrate | 4 | 105, 116, 117, 118 |
 
-Counts: 9 migrate, 4 wrong-platform, 4 dead (116, 117, 118 confirmed dead in ADO;
+Counts: 10 migrate, 4 wrong-platform, 4 dead = 18 (116, 117, 118 confirmed dead in ADO;
 105 is a *proposed* retirement — it is still enabled and externally triggered, so it
 is listed as dead-candidate and must be confirmed with team-quant before deletion).
 
@@ -137,5 +137,5 @@ Every branch below modifies shared templates only; none adds or removes a pipeli
 | `legacy/master-support` | Frozen | 105, 117 (declared) | .NET 6.0.x / Python 3.8 defaults, publishing disabled by default, frozen-compatibility banner |
 
 Migration implication: unifying these branches onto reusable workflows is a
-prerequisite for migrating 102, 103, 104, 106 and 107 — five of the nine
+prerequisite for migrating 102, 103, 104, 106 and 107 — five of the ten
 migration candidates. `team/quant-experiments` has no consumers and can be dropped.
