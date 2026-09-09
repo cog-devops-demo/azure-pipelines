@@ -35,6 +35,7 @@ stages:
             parameters:
               jdkVersion: '17'
               mavenGoal: 'package'
+              projectDirectory: 'services/portfolio-api'
               artifactName: $(artifactName)
 
   - template: templates/release/release-standard.yml@templates
