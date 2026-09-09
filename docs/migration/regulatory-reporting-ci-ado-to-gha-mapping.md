@@ -58,7 +58,7 @@ the template was expanded with these parameter values:
 | 0 | (implicit checkout) | `actions/checkout@v4` |
 | 1 | `script` "Log compliance context" | `run` echo with `$COMPLIANCE_LEVEL` / `python` |
 | 2 | `UsePythonVersion@0` `versionSpec: 3.11` | `actions/setup-python@v5` `python-version: '3.11'` |
-| 3 | `script` "Build and test (Python)" | identical commands, repo root cwd (as in ADO) |
+| 3 | `script` "Build and test (Python)" | identical commands, `working-directory: services/regulatory-reporting` (**intentional change** — the ADO template runs from the checkout root; the sources live in the service directory) |
 | 4 | `script` "Generate compliance metadata" (`generateMetadata == true`) | `run` `build-tools/compliance/generate_metadata.py --artifact regulatory-compliance-pkg --compliance-level elevated --build-id $BUILD_BUILDID --store attestation-database`; guarded `if: push \|\| schedule`; `mkdir -p` staging first |
 | 5 | `PublishBuildArtifacts@1` `pathToPublish: $(Build.ArtifactStagingDirectory)`, `artifactName: regulatory-compliance-pkg` | `actions/upload-artifact@v4` `name: regulatory-compliance-pkg`, `retention-days: 365`, `if-no-files-found: warn` |
 
@@ -164,11 +164,12 @@ No changes were required in `build-tools/`:
 4. **PR runs** execute only `compliance_build` (without the metadata upload); the reports job is push/schedule only.
 5. **`$(Build.BuildNumber)`** is approximated as `yyyyMMdd.<run_number>`; ADO's `r` counter resets daily whereas
    `run_number` is monotonic.
-6. **Pre-existing (preserved from ADO):** the template's `pip install -r requirements.txt && pytest tests/ &&
-   python setup.py sdist bdist_wheel` runs from the **repo root**, not `services/regulatory-reporting/`; the
-   sdist/wheel land in `./dist`, not the staging directory, so the `regulatory-compliance-pkg` artifact only
-   contains the compliance-metadata JSON. Likewise, in `GenerateReports` the metadata/attestation JSON are written
-   to the staging root but only `staging/reports` is published. Not fixed during migration.
+6. **Build cwd:** the ADO template runs `pip install -r requirements.txt && pytest tests/ && python setup.py sdist
+   bdist_wheel` from the checkout root; the GHA step uses `working-directory: services/regulatory-reporting` so it
+   finds the service sources. **Pre-existing (preserved):** the sdist/wheel land in `<service>/dist`, not the
+   staging directory, so the `regulatory-compliance-pkg` artifact only contains the compliance-metadata JSON.
+   Likewise, in `GenerateReports` the metadata/attestation JSON are written to the staging root but only
+   `staging/reports` is published. Not fixed during migration.
 7. **Runtime:** 82 min average is within the 6 h hosted limit; `timeout-minutes: 90` mirrors ADO.
 8. **Validation baselines:** `validation/baselines/regulatory-reporting/` does not exist and there is no service
    source in the repo to measure one from, so the *Artifact Baseline* / *Test Baseline* scorecard checks report
