@@ -94,8 +94,16 @@ def _gh_headers(token: str) -> dict:
 # Azure DevOps side
 # ---------------------------------------------------------------------------
 
-def ado_facts(org: str, project: str, pipeline: str, sha: str, headers: dict) -> dict:
-    """Collect result, test count and artifacts for an ADO run of `sha`."""
+def ado_facts(
+    org: str, project: str, pipeline: str, sha: str, headers: dict, pr: str | None = None
+) -> dict:
+    """Collect result, test count and artifacts for an ADO run of `sha`.
+
+    On a pull request the two platforms never share a commit id: Azure DevOps
+    builds `refs/pull/<n>/merge`, whose sha is a merge commit GitHub Actions
+    never sees. When `pr` is given, the PR validation build is accepted as the
+    counterpart of the GitHub run and the report says so.
+    """
     base = f"https://dev.azure.com/{urllib.parse.quote(org)}/{urllib.parse.quote(project)}/_apis"
 
     definitions = _get(
@@ -112,10 +120,16 @@ def ado_facts(org: str, project: str, pipeline: str, sha: str, headers: dict) ->
         headers,
     ).get("value") or []
     build = next((b for b in builds if (b.get("sourceVersion") or "").startswith(sha[:12])), None)
+    via_pr = False
+    if build is None and pr:
+        branch = f"refs/pull/{pr}/merge"
+        build = next((b for b in builds if b.get("sourceBranch") == branch), None)
+        via_pr = build is not None
     if build is None:
+        target = f"pull request {pr}" if pr else f"commit {sha[:8]}"
         return {
             "status": "exception",
-            "reason": f"no completed ADO run of {pipeline} for commit {sha[:8]}",
+            "reason": f"no completed ADO run of {pipeline} for {target}",
             "definition_id": definition_id,
         }
 
@@ -140,6 +154,7 @@ def ado_facts(org: str, project: str, pipeline: str, sha: str, headers: dict) ->
         "tests_total": total,
         "tests_passed": passed,
         "artifacts": sorted(a["name"] for a in artifacts),
+        "via_pr": via_pr,
     }
 
 
@@ -291,7 +306,12 @@ def compare(service: str, sha: str, ado: dict, gha: dict) -> tuple[str, str]:
     lines += [
         "",
         f"ADO run [{ado['build_id']}]({ado['url']}) · "
-        f"GHA run [{gha['run_id']}]({gha['url']})",
+        f"GHA run [{gha['run_id']}]({gha['url']})"
+        + (
+            f" — Azure DevOps built the pull request merge commit `{ado['commit'][:8]}`"
+            if ado.get("via_pr")
+            else ""
+        ),
         "",
         f"- ADO artifacts: {', '.join(ado['artifacts']) or 'none'}",
         f"- GHA artifacts: {', '.join(gha['artifacts']) or 'none'}",
@@ -321,6 +341,11 @@ def main() -> int:
     parser.add_argument("--gh-repo", required=True, help="owner/name")
     parser.add_argument("--gh-workflow", required=True, help="Workflow file name")
     parser.add_argument("--sha", required=True, help="Commit both systems must have run")
+    parser.add_argument(
+        "--pr",
+        help="Pull request number; lets the ADO merge-commit validation build "
+             "count as the counterpart of the GitHub run",
+    )
     parser.add_argument("--output", help="Write the markdown report here as well")
     args = parser.parse_args()
 
@@ -335,7 +360,9 @@ def main() -> int:
         return 0
 
     try:
-        ado = ado_facts(args.ado_org, args.ado_project, args.ado_pipeline, args.sha, ado_headers)
+        ado = ado_facts(
+            args.ado_org, args.ado_project, args.ado_pipeline, args.sha, ado_headers, args.pr
+        )
         gha = gha_facts(args.gh_repo, args.gh_workflow, args.sha, token)
     except RuntimeError as error:
         print(
