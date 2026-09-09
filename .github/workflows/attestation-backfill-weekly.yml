@@ -34,8 +34,10 @@ on:
 permissions:
   contents: read
 
+# Live runs (schedule/dispatch) share one group so they serialise; PR dry-runs
+# get their own per-ref group so they can never displace a pending live run.
 concurrency:
-  group: attestation-backfill-weekly
+  group: attestation-backfill-weekly-${{ github.event_name == 'pull_request' && github.ref || 'live' }}
   cancel-in-progress: false
 
 jobs:

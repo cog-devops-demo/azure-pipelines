@@ -37,7 +37,7 @@ No other Category 5 pipeline is covered by this override.
 | — | `on.pull_request` (`branches: [main]`, paths: this workflow, `night-jobs/compliance/**`, `build-tools/compliance/**`) | Added as a **dry-run smoke test**: on `pull_request` the job runs on `ubuntu-latest`, `DRY_RUN=true` is passed to `backfill_attestations.py`, and the `Record backfill metadata` step (store upload) is skipped. A PR can never write to the attestation store. |
 | `schedules[0].cron: '0 3 * * 0'`, `branches: [main]`, `always: true` | `on.schedule: [{cron: '0 3 * * 0'}]` gated by `vars.ATTESTATION_BACKFILL_GHA_CUTOVER == 'true'` | GHA scheduled workflows always run from the default branch (`main`) and always run regardless of changes, matching `always: true`. Both are UTC. The job-level `if:` keeps the GHA schedule **inert until cutover** (see below) so ADO 114 and GHA never both run the live backfill. |
 | — | `on.workflow_dispatch` | Added so operators can trigger a manual re-run (ADO allowed manual queueing of any pipeline). |
-| — | `concurrency: {group: attestation-backfill-weekly, cancel-in-progress: false}` | Prevents a manual dispatch from overlapping the weekly run and double-writing attestations. |
+| — | `concurrency: {group: attestation-backfill-weekly-<'live' \| PR ref>, cancel-in-progress: false}` | Live runs (schedule + dispatch) share the `live` group so a manual dispatch cannot overlap the weekly run. PR dry-runs use a per-ref group so they never join — and never displace — a pending live run (GitHub keeps only one pending run per group). Caveat: two *live* runs queued simultaneously still collapse to one; that is the intended de-duplication. |
 
 ### Schedule cutover sequence (avoid duplicate weekly runs)
 
@@ -117,7 +117,7 @@ wired up.
 
 | Integration | ADO | GHA |
 |---|---|---|
-| attestation-database / compliance-store | reached from `linux-build-workers` self-hosted pool | same network segment via `runs-on: [self-hosted, linux-build-workers]` |
+| attestation-database / compliance-store | reached from `linux-build-workers` self-hosted pool | same network segment via the self-hosted `linux-build-workers` runner label (schedule/dispatch runs) |
 | Compliance metadata (`generate_metadata.py`) | writes `<artifact>-compliance-metadata.json` into staging dir, "uploads" to store | identical; env shims keep `pipeline`/`repository`/`branch`/`commit`/`agent` fields populated instead of `unknown` |
 | Artifactory / release orchestrator / D2 notifications | not used by this pipeline | n/a |
 | Artifact registration guard (`github.event_name == 'push'`) | n/a | n/a — the workflow has no `push` trigger and registers nothing in an artifact registry; the only artifact is the GHA-native run artifact |
