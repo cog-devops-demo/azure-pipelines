@@ -199,6 +199,16 @@ def _extract_ado_stages(pipeline: dict) -> list[dict]:
         return []
     stages = []
     for stage in pipeline.get("stages") or []:
+        if "template" in stage and "stage" not in stage:
+            stages.append({
+                "name": Path(stage["template"]).stem,
+                "display_name": f"template: {stage['template']}",
+                "condition": "",
+                "depends_on": "",
+                "step_count": 1,
+                "has_template": True,
+            })
+            continue
         name = stage.get("stage", "unknown")
         display = stage.get("displayName", name)
         condition = stage.get("condition", "")
