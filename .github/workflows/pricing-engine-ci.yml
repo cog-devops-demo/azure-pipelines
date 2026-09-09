@@ -35,6 +35,7 @@ env:
   BUILD_REQUESTEDFOR: ${{ github.actor }}
   SYSTEM_TEAMFOUNDATIONCOLLECTIONURI: ${{ github.server_url }}/
   SYSTEM_TEAMPROJECT: ${{ github.repository }}
+  PIPELINE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
   build:

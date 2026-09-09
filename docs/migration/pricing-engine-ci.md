@@ -82,7 +82,7 @@ rather than running the suite twice.
 | `strategy: runOnce` | plain job (single run) |
 | `download: current, artifact: pricing-engine-drop` | `actions/download-artifact@v4` |
 | `Execute deployment` echo (rolling) | same |
-| `notify_release_orchestrator.py … --status success` | same, `--build-id "$GITHUB_RUN_ID"` |
+| `notify_release_orchestrator.py … --status success` | same, `--build-id "$GITHUB_RUN_ID"`; `PIPELINE_RUN_URL` env overrides the ADO `_build/results` URL with the Actions run URL |
 | `generate_attestation.py` | same; output uploaded as `pricing-engine-dev-attestation` |
 | *no checkout* (deployment jobs do not check out sources by default) | `actions/checkout@v4` added — the ADO template references `$(Build.SourcesDirectory)/build-tools/scripts/*.py`, which would not exist in a deployment job; this stage has been `skipped` in every live run so the bug never surfaced |
 
