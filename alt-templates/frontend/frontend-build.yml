@@ -21,6 +21,10 @@ parameters:
     type: string
     default: 'frontend-bundle'
 
+  - name: projectDirectory
+    type: string
+    default: '.'
+
 steps:
   - task: NodeTool@0
     displayName: 'Install Node.js ${{ parameters.nodeVersion }}'
@@ -29,24 +33,29 @@ steps:
 
   - script: npm ci
     displayName: 'Install dependencies'
+    workingDirectory: ${{ parameters.projectDirectory }}
 
   - script: npm run lint
     displayName: 'Lint check'
+    workingDirectory: ${{ parameters.projectDirectory }}
 
   - script: npm run build:${{ parameters.framework }}
     displayName: 'Build ${{ parameters.framework }} app'
+    workingDirectory: ${{ parameters.projectDirectory }}
 
   - ${{ if eq(parameters.enableSSR, true) }}:
     - script: npm run build:ssr
       displayName: 'Build SSR bundle'
+      workingDirectory: ${{ parameters.projectDirectory }}
 
   - script: npm test -- --ci --coverage
     displayName: 'Run tests'
+    workingDirectory: ${{ parameters.projectDirectory }}
 
   - task: ArchiveFiles@2
     displayName: 'Archive frontend bundle'
     inputs:
-      rootFolderOrFile: 'build/'
+      rootFolderOrFile: '${{ parameters.projectDirectory }}/build/'
       includeRootFolder: false
       archiveType: 'zip'
       archiveFile: '$(Build.ArtifactStagingDirectory)/${{ parameters.artifactName }}.zip'
