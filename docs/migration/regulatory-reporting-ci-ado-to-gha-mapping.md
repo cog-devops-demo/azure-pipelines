@@ -171,9 +171,10 @@ No changes were required in `build-tools/`:
    Likewise, in `GenerateReports` the metadata/attestation JSON are written to the staging root but only
    `staging/reports` is published. Not fixed during migration.
 7. **Runtime:** 82 min average is within the 6 h hosted limit; `timeout-minutes: 90` mirrors ADO.
-8. **Validation baselines:** `validation/baselines/regulatory-reporting/` does not exist and there is no service
-   source in the repo to measure one from, so the *Artifact Baseline* / *Test Baseline* scorecard checks report
-   FAIL. A baseline must be measured from a real run rather than invented.
+8. **Validation baselines:** `validation/baselines/regulatory-reporting/` does not exist, so the *Artifact
+   Baseline* / *Test Baseline* scorecard checks report FAIL. The scaffold in this PR (gap 10) is fixture code, not
+   the real service, so measuring its test count / artifact list would not reflect the ADO pipeline's actual
+   numbers; a baseline must be taken from a real ADO run rather than invented here.
 9. **Pre-existing (preserved from ADO):** `build-tools/compliance/generate_metadata.py` and
    `build-tools/scripts/generate_attestation.py` only write local JSON and print a success message — nothing is
    actually persisted to the attestation database. The ADO pipeline has the same behaviour; the shared helpers were
