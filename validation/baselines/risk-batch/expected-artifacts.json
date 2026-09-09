@@ -1,0 +1,16 @@
+{
+  "artifact_name": "risk-batch-dist",
+  "service": "risk-batch",
+  "expected_file_count": 6,
+  "expected_file_types": [".whl", ".tar.gz", ".xml", ".json"],
+  "expected_contents": [
+    "risk_batch-*.whl",
+    "risk_batch-*.tar.gz",
+    "test-results.xml",
+    "coverage.xml"
+  ],
+  "min_artifact_size_mb": 1,
+  "max_artifact_size_mb": 20,
+  "last_updated": "2024-06-20",
+  "updated_by": "team-quant"
+}

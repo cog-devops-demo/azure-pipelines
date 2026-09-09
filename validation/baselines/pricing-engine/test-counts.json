@@ -1,0 +1,9 @@
+{
+  "service": "pricing-engine",
+  "expected_test_suites": 4,
+  "expected_total_tests": 187,
+  "minimum_pass_rate": 0.95,
+  "expected_coverage_percent": 72,
+  "frameworks": ["xunit"],
+  "last_updated": "2024-08-15"
+}

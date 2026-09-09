@@ -1,0 +1,14 @@
+{
+  "artifact_name": "portfolio-api-dist",
+  "service": "portfolio-api",
+  "expected_file_count": 4,
+  "expected_file_types": [".jar", ".war", ".xml"],
+  "expected_contents": [
+    "portfolio-api-*.jar",
+    "portfolio-api-*.war"
+  ],
+  "min_artifact_size_mb": 15,
+  "max_artifact_size_mb": 80,
+  "last_updated": "2024-04-10",
+  "updated_by": "team-quant"
+}

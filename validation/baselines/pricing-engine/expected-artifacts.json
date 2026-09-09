@@ -1,0 +1,16 @@
+{
+  "artifact_name": "pricing-engine-drop",
+  "service": "pricing-engine",
+  "expected_file_count": 12,
+  "expected_file_types": [".dll", ".pdb", ".json", ".xml"],
+  "expected_contents": [
+    "PricingEngine.dll",
+    "PricingEngine.pdb",
+    "appsettings.json",
+    "web.config"
+  ],
+  "min_artifact_size_mb": 5,
+  "max_artifact_size_mb": 50,
+  "last_updated": "2024-08-15",
+  "updated_by": "ci-automation"
+}
