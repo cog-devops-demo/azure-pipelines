@@ -28,10 +28,55 @@ except ImportError:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _is_classic(path: str) -> bool:
+    """True when the ADO source is an exported classic (designer) definition."""
+    return str(path).endswith(".json")
+
+
+def _classic_phase_steps(phase: dict) -> list[dict]:
+    """Enabled steps of a classic phase; disabled tasks are not requirements."""
+    return [s for s in phase.get("steps") or [] if s.get("enabled", True)]
+
+
+def _classic_steps(definition: dict) -> list[tuple[str, list[str]]]:
+    """Return (phase name, step display names) for a classic definition."""
+    phases = ((definition or {}).get("process") or {}).get("phases") or []
+    return [
+        (
+            phase.get("name", "Phase"),
+            [
+                s.get("displayName", "unnamed")
+                for s in _classic_phase_steps(phase)
+            ],
+        )
+        for phase in phases
+    ]
+
+
+def _render_classic(definition: dict) -> str:
+    """Flatten a classic definition to text so content checks can match it."""
+    chunks = [f"# ADO classic definition: {definition.get('name', 'unknown')}"]
+    for trigger in definition.get("triggers") or []:
+        chunks.append(f"trigger: {trigger.get('triggerType')}")
+    for phase_name, _ in _classic_steps(definition):
+        chunks.append(f"phase: {phase_name}")
+    for phase in ((definition.get("process") or {}).get("phases") or []):
+        for step in _classic_phase_steps(phase):
+            chunks.append(f"step: {step.get('displayName', 'unnamed')}")
+            for key, value in (step.get("inputs") or {}).items():
+                chunks.append(f"  {key}: {value}")
+    return "\n".join(chunks)
+
+
 def _load_yaml(path: str) -> dict | None:
     """Load a YAML file, returning None on parse failure."""
     with open(path) as f:
         raw = f.read()
+    if _is_classic(path):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
     if yaml:
         try:
             return yaml.safe_load(raw)
@@ -108,6 +153,13 @@ def _expand_ado_source_details(
         raw = source_path.read_text()
     except OSError:
         return "", [], [f"{ado_path}@unknown"]
+
+    if _is_classic(ado_path):
+        try:
+            definition = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return "", [], [f"{ado_path}@unparsable: {exc}"]
+        return f"# ADO source: {ado_path}\n{_render_classic(definition)}", [], []
 
     ref = _template_repository_ref(raw)
     chunks = [f"# ADO source: {ado_path}\n{raw}"]
@@ -197,6 +249,18 @@ def _extract_ado_stages(pipeline: dict) -> list[dict]:
     """Extract stage summaries from an ADO pipeline."""
     if not pipeline or "_raw" in pipeline:
         return []
+    if pipeline.get("process", {}).get("phases"):
+        return [
+            {
+                "name": name,
+                "display_name": name,
+                "condition": "",
+                "depends_on": "",
+                "step_count": len(steps),
+                "has_template": False,
+            }
+            for name, steps in _classic_steps(pipeline)
+        ]
     stages = []
     for stage in pipeline.get("stages") or []:
         if "stage" not in stage and "template" in stage:

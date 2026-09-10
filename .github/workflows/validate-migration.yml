@@ -9,13 +9,15 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/**'
-      - 'services/**/azure-pipelines.yml'
+      - 'services/**/azure-pipelines*.yml'
+      - 'docs/migration/ado-exports/**'
       - 'validation/**'
   push:
     branches: [main]
     paths:
       - '.github/workflows/**'
-      - 'services/**/azure-pipelines.yml'
+      - 'services/**/azure-pipelines*.yml'
+      - 'docs/migration/ado-exports/**'
       - 'validation/**'
   workflow_dispatch:
 
@@ -65,7 +67,7 @@ jobs:
       - name: Install PyYAML
         run: pip install --quiet pyyaml
 
-      - name: Detect changed workflows
+      - name: Detect changed workflows and ADO sources
         id: detect
         env:
           DIFF_RANGE: ${{ github.event_name == 'push' && format('{0}..{1}', github.event.before, github.sha) || 'origin/main...HEAD' }}
@@ -74,23 +76,30 @@ jobs:
             DIFF_RANGE="HEAD~1..HEAD"   # first push on a branch has no "before" commit
           fi
           WORKFLOWS=$(git diff --name-only "$DIFF_RANGE" -- '.github/workflows/*.yml' | tr '\n' ' ')
+          SOURCES=$(git diff --name-only "$DIFF_RANGE" -- 'services/**/azure-pipelines*.yml' 'docs/migration/ado-exports/**' | tr '\n' ' ')
           echo "workflows=$WORKFLOWS" >> "$GITHUB_OUTPUT"
+          echo "sources=$SOURCES" >> "$GITHUB_OUTPUT"
           echo "Found changed workflows: $WORKFLOWS"
+          echo "Found changed ADO sources: $SOURCES"
 
       - name: Run migration validation
         id: validate
         env:
           CHANGED_WORKFLOWS: ${{ steps.detect.outputs.workflows }}
+          CHANGED_SOURCES: ${{ steps.detect.outputs.sources }}
         run: |
           REPORT=""
 
-          # Map workflow names to services/ADO pipelines
-          for wf in $CHANGED_WORKFLOWS; do
+          # Map a workflow basename to "service|ADO definition name|ADO source|known".
+          # The ADO source is a pipeline YAML, or an exported classic definition (.json).
+          # "known" marks an explicitly mapped migration workflow: a missing source is
+          # then a validation failure rather than a workflow we have no opinion about.
+          map_workflow() {
+            BASE="$1"
             SERVICE=""
             ADO_PIPELINE=""
-
-            # Extract service name from workflow filename
-            BASE=$(basename "$wf" .yml)
+            KNOWN=1
+            ADO_NAME="$BASE"   # ADO definition name, when it differs from the workflow
             case "$BASE" in
               pricing-engine-ci)
                 SERVICE="pricing-engine"
@@ -120,18 +129,51 @@ jobs:
                 SERVICE="frontend-workbench"
                 ADO_PIPELINE="services/frontend-workbench/azure-pipelines.yml"
                 ;;
+              settlement-gateway-ci)
+                # classic (designer) ADO definition — no YAML in the repo
+                SERVICE="settlement-gateway"
+                ADO_NAME="settlement-gateway-classic"
+                ADO_PIPELINE="docs/migration/ado-exports/settlement-gateway-classic.json"
+                ;;
               regulatory-reporting-ci)
                 SERVICE="regulatory-reporting"
                 ADO_PIPELINE="services/regulatory-reporting/azure-pipelines.yml"
                 ;;
               *)
-                echo "No ADO mapping for $BASE — skipping"
-                continue
+                SERVICE="${BASE%-ci}"
+                ADO_PIPELINE="services/${BASE%-ci}/azure-pipelines.yml"
+                KNOWN=0
                 ;;
             esac
+            printf '%s|%s|%s|%s\n' "$SERVICE" "$ADO_NAME" "$ADO_PIPELINE" "$KNOWN"
+          }
 
+          missing_source_report() {
+            # shellcheck disable=SC2016  # backticks are markdown code spans, not substitutions
+            printf '## Migration Validation Report\n\n**Service:** `%s`  \n**GHA Workflow:** `%s`\n\n| Check | Status | Details |\n|-------|--------|---------|\n| ADO Source | FAIL | mapped ADO source `%s` is missing |\n' "$1" "$2" "$3"
+          }
+
+          # An ADO source can change without its workflow changing (e.g. a refreshed
+          # classic export); validate the workflow that maps to it as well.
+          for wf in .github/workflows/*.yml; do
+            [ -f "$wf" ] || continue
+            case " $CHANGED_WORKFLOWS " in *" $wf "*) continue ;; esac
+            IFS='|' read -r _ _ SRC KNOWN <<<"$(map_workflow "$(basename "$wf" .yml)")"
+            [ "$KNOWN" = "1" ] || continue
+            case " $CHANGED_SOURCES " in
+              *" $SRC "*) CHANGED_WORKFLOWS="$CHANGED_WORKFLOWS $wf" ;;
+            esac
+          done
+
+          for wf in $CHANGED_WORKFLOWS; do
+            IFS='|' read -r SERVICE ADO_NAME ADO_PIPELINE KNOWN <<<"$(map_workflow "$(basename "$wf" .yml)")"
             if [ ! -f "$ADO_PIPELINE" ]; then
-              echo "ADO pipeline not found: $ADO_PIPELINE — skipping"
+              if [ "$KNOWN" = "1" ]; then
+                echo "Mapped ADO source missing for $wf: $ADO_PIPELINE"
+                REPORT="${REPORT}$(missing_source_report "$SERVICE" "$wf" "$ADO_PIPELINE")"$'\n\n'
+              else
+                echo "No ADO source for $wf — skipping"
+              fi
               continue
             fi
 
@@ -143,17 +185,21 @@ jobs:
               --baselines validation/baselines \
               --repo-root "$GITHUB_WORKSPACE")
             REPORT="${REPORT}${RESULT}"$'\n\n'
-            echo "$SERVICE|$BASE|$(basename "$wf")" >> /tmp/parity-targets.txt
+            echo "$SERVICE|$ADO_NAME|$(basename "$wf")" >> /tmp/parity-targets.txt
           done
 
           # Full scan on manual dispatch only
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -z "$CHANGED_WORKFLOWS" ]; then
-            for wf in .github/workflows/*-ci.yml; do
+            for wf in .github/workflows/*.yml; do
               [ -f "$wf" ] || continue
-              BASE=$(basename "$wf" .yml)
-              SERVICE="${BASE%-ci}"
-              ADO_PIPELINE="services/$SERVICE/azure-pipelines.yml"
-              [ -f "$ADO_PIPELINE" ] || continue
+              IFS='|' read -r SERVICE ADO_NAME ADO_PIPELINE KNOWN <<<"$(map_workflow "$(basename "$wf" .yml)")"
+              if [ ! -f "$ADO_PIPELINE" ]; then
+                if [ "$KNOWN" = "1" ]; then
+                  echo "Mapped ADO source missing for $wf: $ADO_PIPELINE"
+                  REPORT="${REPORT}$(missing_source_report "$SERVICE" "$wf" "$ADO_PIPELINE")"$'\n\n'
+                fi
+                continue
+              fi
 
               echo "Validating (full scan): $SERVICE"
               RESULT=$(python validation/scripts/validate_migration.py \
@@ -163,6 +209,7 @@ jobs:
                 --baselines validation/baselines \
                 --repo-root "$GITHUB_WORKSPACE")
               REPORT="${REPORT}${RESULT}"$'\n\n'
+              echo "$SERVICE|$ADO_NAME|$(basename "$wf")" >> /tmp/parity-targets.txt
             done
           fi
 
