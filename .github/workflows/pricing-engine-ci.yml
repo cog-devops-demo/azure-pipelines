@@ -12,10 +12,12 @@ on:
     paths:
       - 'services/pricing-engine/**'
       - '.github/workflows/pricing-engine-ci.yml'
+      - 'build-tools/scripts/**'
   pull_request:
     paths:
       - 'services/pricing-engine/**'
       - '.github/workflows/pricing-engine-ci.yml'
+      - 'build-tools/scripts/**'
   workflow_dispatch:
 
 permissions:

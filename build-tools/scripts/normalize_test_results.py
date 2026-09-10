@@ -26,6 +26,8 @@ def parse_junit_xml(filepath: str) -> dict:
     _strip_namespaces(root)
 
     suites = root.findall(".//testsuite")
+    if root.tag == "testsuite":
+        suites.insert(0, root)
     total_tests = 0
     total_failures = 0
     total_errors = 0

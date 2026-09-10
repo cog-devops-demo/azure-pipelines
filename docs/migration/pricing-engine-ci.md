@@ -24,7 +24,7 @@ parity checks.
 | ADO | GitHub Actions |
 |---|---|
 | `main` and `release/*` branch CI trigger | `push.branches: [main, 'release/**']` |
-| Service path trigger `services/pricing-engine/**` | Same path under `push.paths` |
+| Service path trigger `services/pricing-engine/**` | Same path under `push.paths`, plus `build-tools/scripts/**` because the jobs call those helpers |
 | No ADO pull-request trigger in the source definition | `pull_request` for the service and workflow paths, so changes are validated before merge |
 | Manual execution through ADO | `workflow_dispatch` |
 | Hosted `ubuntu-latest` pool | `runs-on: ubuntu-latest` for each job |
