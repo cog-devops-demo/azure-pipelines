@@ -97,8 +97,8 @@ ADO stages without `dependsOn` run sequentially in file order, which is what the
 |---|---|---|
 | `variables.artifactName` = `frontend-workbench-bundle` | top-level `env.ARTIFACT_NAME` | |
 | template param `projectDirectory` | `env.PROJECT_DIRECTORY` + job `defaults.run.working-directory` | |
-| `$(Build.ArtifactStagingDirectory)` | `env.BUILD_ARTIFACTSTAGINGDIRECTORY` = `${{ github.workspace }}/.staging` | created with `mkdir -p` before use |
-| `$(Pipeline.Workspace)` | `env.PIPELINE_WORKSPACE` = `${{ github.workspace }}/.pipeline-workspace` | download-artifact creates it |
+| `$(Build.ArtifactStagingDirectory)` | `env.BUILD_ARTIFACTSTAGINGDIRECTORY` = `${{ github.workspace }}/artifact-staging` | created with `mkdir -p` before use |
+| `$(Pipeline.Workspace)` | `env.PIPELINE_WORKSPACE` = `${{ github.workspace }}/pipeline-workspace` | download-artifact creates it |
 | `${{ parameters.environment }}` | job `env.DEPLOY_ENVIRONMENT` (`dev` / `staging`) | |
 | VG `frontend-cdn-config` → `CDN_ENDPOINT`, `CDN_STORAGE_ACCOUNT` | `${{ vars.CDN_ENDPOINT }}`, `${{ vars.CDN_STORAGE_ACCOUNT }}` (environment variables) | plain values in ADO |
 | VG `frontend-cdn-config` → `CDN_STORAGE_KEY`, `CDN_PURGE_API_KEY` | `${{ secrets.CDN_STORAGE_KEY }}`, `${{ secrets.CDN_PURGE_API_KEY }}` (environment secrets) | secret in ADO |

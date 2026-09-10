@@ -53,9 +53,9 @@ env:
   ARTIFACT_NAME: frontend-workbench-bundle
   PROJECT_DIRECTORY: services/frontend-workbench
   # --- mapped from: $(Build.ArtifactStagingDirectory) ---
-  BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ github.workspace }}/.staging
+  BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ github.workspace }}/artifact-staging
   # --- mapped from: $(Pipeline.Workspace) (DownloadBuildArtifacts@1 downloadPath) ---
-  PIPELINE_WORKSPACE: ${{ github.workspace }}/.pipeline-workspace
+  PIPELINE_WORKSPACE: ${{ github.workspace }}/pipeline-workspace
 
 jobs:
   # --- mapped from: stage Build ("Build frontend-workbench") / job build ---
