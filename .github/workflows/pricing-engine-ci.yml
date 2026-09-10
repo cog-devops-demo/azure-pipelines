@@ -1,0 +1,184 @@
+# Migrated from services/pricing-engine/azure-pipelines.yml.
+# Templates consumed from shared-ci-platform@main.
+# Mapping documentation: docs/migration/pricing-engine-ci.md
+
+name: pricing-engine-ci
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'services/pricing-engine/**'
+      - '.github/workflows/pricing-engine-ci.yml'
+      - 'build-tools/scripts/**'
+  pull_request:
+    paths:
+      - 'services/pricing-engine/**'
+      - '.github/workflows/pricing-engine-ci.yml'
+      - 'build-tools/scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILD_CONFIGURATION: Release
+  ARTIFACT_NAME: pricing-engine-drop
+  DOTNET_VERSION: 8.0.x
+  SOLUTION: services/pricing-engine/PricingEngine.sln
+
+jobs:
+  build:
+    name: Build pricing-engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore NuGet packages
+        run: dotnet restore "$SOLUTION"
+
+      - name: Build solution
+        run: dotnet build "$SOLUTION" --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Run unit tests
+        run: >-
+          dotnet test services/pricing-engine/tests/PricingEngine.Tests/PricingEngine.Tests.csproj
+          --configuration "$BUILD_CONFIGURATION"
+          --no-build
+          --logger "trx;LogFileName=PricingEngine.Tests.trx"
+          --results-directory "$RUNNER_TEMP/test-output"
+          --collect:"XPlat Code Coverage"
+
+      - name: Publish application
+        run: |
+          mkdir -p "$RUNNER_TEMP/a/PricingEngine"
+          dotnet publish services/pricing-engine/src/PricingEngine/PricingEngine.csproj \
+            --configuration "$BUILD_CONFIGURATION" \
+            --no-build \
+            --output "$RUNNER_TEMP/a/PricingEngine"
+          (
+            cd "$RUNNER_TEMP/a/PricingEngine" || exit
+            zip -r "../PricingEngine.zip" .
+          )
+          rm -rf "$RUNNER_TEMP/a/PricingEngine"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/a/PricingEngine.zip
+          if-no-files-found: error
+
+      - name: Register artifact in Artifactory
+        run: >-
+          python3 build-tools/scripts/publish_artifact.py
+          --name "$ARTIFACT_NAME"
+          --registry Artifactory
+          --build-id "$GITHUB_RUN_ID"
+        env:
+          BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ runner.temp }}/a
+
+      - name: Upload artifact manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-drop-manifest
+          path: ${{ runner.temp }}/a/pricing-engine-drop-manifest.json
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-test-results
+          path: ${{ runner.temp }}/test-output/*.trx
+          if-no-files-found: warn
+
+      - name: Upload code coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-code-coverage
+          path: ${{ runner.temp }}/test-output/**/coverage.cobertura.xml
+          if-no-files-found: warn
+
+  test:
+    name: Run tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test results directory
+        run: mkdir -p "$RUNNER_TEMP/a/test-results"
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: pricing-engine-test-results
+          path: ${{ runner.temp }}/a/test-results
+
+      - name: Normalize test results
+        if: always()
+        run: >-
+          python3 build-tools/scripts/normalize_test_results.py
+          --input-dir "$RUNNER_TEMP/a/test-results"
+          --output "$RUNNER_TEMP/a/normalized-results.json"
+
+      - name: Upload normalized results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-normalized-results
+          path: ${{ runner.temp }}/a/normalized-results.json
+          if-no-files-found: error
+
+  deploy-dev:
+    name: Deploy to dev
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/a
+
+      - name: Execute deployment
+        run: |
+          echo "Deploying $ARTIFACT_NAME to dev"
+          echo "Strategy: rolling"
+
+      - name: Notify D2
+        run: >-
+          python3 build-tools/scripts/notify_release_orchestrator.py
+          --service "$ARTIFACT_NAME"
+          --env dev
+          --build-id "$GITHUB_RUN_ID"
+          --status success
+
+      - name: Generate compliance attestation
+        run: |
+          mkdir -p "$RUNNER_TEMP/a"
+          python3 build-tools/scripts/generate_attestation.py \
+            --artifact "$ARTIFACT_NAME" \
+            --env dev \
+            --build-id "$GITHUB_RUN_ID"
+        env:
+          BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ runner.temp }}/a
+
+      - name: Upload dev attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: pricing-engine-dev-attestation
+          path: ${{ runner.temp }}/a/pricing-engine-drop-attestation.json
+          if-no-files-found: error
