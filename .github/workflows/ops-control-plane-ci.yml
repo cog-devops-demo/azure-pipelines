@@ -1,0 +1,99 @@
+# ops-control-plane-ci CI workflow
+# Migrated from: services/ops-control-plane/azure-pipelines.yml (ADO pipeline ID 109)
+# Stack: Go 1.22
+# Original template source: none — Category 4 custom inline pipeline (predates templates/build/build-go.yml)
+#
+# ADO templates inlined:
+#   - none (the ADO pipeline declares no resources.repositories and no template: references)
+#
+# ADO stage "Build ops-control-plane" / job "build_go" → GHA job "build".
+# Variable group `ops-infra-credentials` and the `ContainerRegistry-ACR` service connection are
+# bound to ADO definition 109 but no step in the ADO YAML consumes them, so no secrets or
+# registry login are wired here. See docs/migration/ops-control-plane-ci-ado-to-gha-mapping.md.
+
+name: ops-control-plane-ci
+
+on:
+  # --- mapped from: trigger.branches.include [main] + trigger.paths.include [services/ops-control-plane/**] ---
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/ops-control-plane/**'
+      - '.github/workflows/ops-control-plane-ci.yml'
+  # Not present in ADO — added for earlier CI feedback on pull requests.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/ops-control-plane/**'
+      - '.github/workflows/ops-control-plane-ci.yml'
+  # Not present in ADO — equivalent of the ADO "Run pipeline" button.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# --- mapped from: variables (GOPATH, GOBIN, modulePath) ---
+env:
+  GOPATH: ${{ github.workspace }}/go
+  GOBIN: ${{ github.workspace }}/go/bin
+  MODULE_PATH: services/ops-control-plane
+  # --- mapped from: $(Build.ArtifactStagingDirectory) ---
+  STAGING_DIR: ${{ github.workspace }}/staging
+  # ADO predefined-variable shims (on pull_request, github.sha is the synthetic merge commit)
+  BUILD_SOURCEBRANCH: ${{ github.ref }}
+  BUILD_SOURCEVERSION: ${{ github.sha }}
+  BUILD_BUILDID: ${{ github.run_id }}
+  PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  # --- mapped from: stage Build ("Build ops-control-plane") / job build_go ("Go build and test") ---
+  build:
+    name: Build ops-control-plane
+    # --- mapped from: pool.vmImage ubuntu-latest ---
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # --- mapped from: workingDirectory: $(modulePath) ---
+        working-directory: services/ops-control-plane
+    steps:
+      # --- mapped from: implicit ADO checkout ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: GoTool@0 (version 1.22) ---
+      - name: Install Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      # --- mapped from: script "Download modules" ---
+      - name: Download modules
+        run: |
+          go mod download
+          go mod verify
+
+      # --- mapped from: script "Vet" ---
+      - name: Vet
+        run: go vet ./...
+
+      # --- mapped from: script "Run tests" ---
+      - name: Run tests
+        run: go test ./... -v -coverprofile=coverage.out
+
+      # --- mapped from: script "Build binary" ---
+      - name: Build binary
+        run: |
+          mkdir -p "$STAGING_DIR"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -ldflags="-s -w" -o "$STAGING_DIR/ops-control-plane" ./cmd/server
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory), artifactName ops-control-plane-binary) ---
+      - name: Publish binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ops-control-plane-binary
+          path: ${{ env.STAGING_DIR }}
+          if-no-files-found: error
