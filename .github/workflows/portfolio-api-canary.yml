@@ -37,7 +37,7 @@ on:
 # --- mapped from: variables + build-java.yml parameters ---
 env:
   ARTIFACT_NAME: portfolio-api-canary          # $(artifactName)
-  TEMPLATES_BRANCH: ${{ inputs.templateBranch }} # $(templates_branch)
+  TEMPLATES_BRANCH: ${{ inputs.templateBranch || 'main' }} # $(templates_branch)
   PROJECT_DIR: services/portfolio-api          # parameters.projectDirectory
   JDK_VERSION: '17'                            # parameters.jdkVersion
   MAVEN_GOALS: clean package                   # parameters.mavenGoals (template default)
@@ -46,7 +46,7 @@ env:
 jobs:
   # --- mapped from: stage Build / job build ---
   build:
-    name: Build portfolio-api (canary - ${{ inputs.templateBranch }})
+    name: Build portfolio-api (canary - ${{ inputs.templateBranch || 'main' }})
     runs-on: ubuntu-latest
     steps:
       # --- mapped from: implicit checkout: self ---
