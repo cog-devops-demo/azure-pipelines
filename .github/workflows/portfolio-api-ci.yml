@@ -1,0 +1,166 @@
+# portfolio-api-ci CI workflow
+# Migrated from: services/portfolio-api/azure-pipelines.yml (ADO pipeline ID 102)
+# Stack: Java 17 / Maven
+# Original template source: shared-ci-platform@master (branch absent from this repo;
+#   resolved from main — the live ADO preview confirms identical content)
+#
+# ADO templates inlined:
+#   - templates/build/build-java.yml
+#   - templates/release/release-standard.yml
+#
+# Mapping and equivalence notes: docs/migration/portfolio-api-ci-ado-to-gha-mapping.md
+
+name: portfolio-api-ci
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'services/portfolio-api/**'
+      - '.github/workflows/portfolio-api-ci.yml'
+  pull_request:
+    paths:
+      - 'services/portfolio-api/**'
+      - '.github/workflows/portfolio-api-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ARTIFACT_NAME: portfolio-api-dist            # ADO variable artifactName
+  JDK_VERSION: '17'                            # build-java.yml jdkVersion
+  PROJECT_DIRECTORY: services/portfolio-api    # build-java.yml projectDirectory
+  MAVEN_GOALS: package                         # build-java.yml mavenGoals
+  MAVEN_OPTIONS: -B -DskipTests=false          # build-java.yml mavenOptions (default)
+  DEPLOY_ENVIRONMENT: staging
+  # ADO predefined variables shimmed for build-tools/scripts/*.py
+  BUILD_SOURCEBRANCH: ${{ github.ref }}
+  BUILD_SOURCEVERSION: ${{ github.sha }}
+  BUILD_BUILDID: ${{ github.run_id }}
+  BUILD_DEFINITIONNAME: ${{ github.workflow }}
+  BUILD_REQUESTEDFOR: ${{ github.actor }}
+  SYSTEM_TEAMFOUNDATIONCOLLECTIONURI: ${{ github.server_url }}/
+  SYSTEM_TEAMPROJECT: ${{ github.repository }}
+  PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  build:
+    name: Build portfolio-api
+    runs-on: ubuntu-latest
+    steps:
+      # --- mapped from: implicit checkout: self ---
+      - uses: actions/checkout@v4
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory)/$(Agent.*) predefined vars ---
+      - name: Map ADO agent variables
+        run: |
+          {
+            echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/staging"
+            echo "AGENT_NAME=$RUNNER_NAME"
+            echo "AGENT_OS=$RUNNER_OS"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/staging"
+
+      # --- mapped from: JavaToolInstaller@0 ---
+      - name: Install JDK ${{ env.JDK_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JDK_VERSION }}
+          cache: maven
+
+      # --- mapped from: Maven@4 ---
+      - name: Maven ${{ env.MAVEN_GOALS }}
+        run: |
+          # shellcheck disable=SC2086
+          mvn $MAVEN_OPTIONS -f "$PROJECT_DIRECTORY/pom.xml" $MAVEN_GOALS
+
+      # --- mapped from: Maven@4 publishJUnitResults/testResultsFiles ---
+      - name: Upload JUnit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-api-test-results
+          path: ${{ env.PROJECT_DIRECTORY }}/**/surefire-reports/TEST-*.xml
+          if-no-files-found: warn
+
+      # --- mapped from: script 'Stage build artifacts' ---
+      - name: Stage build artifacts
+        run: |
+          cp "$PROJECT_DIRECTORY"/target/*.jar "$BUILD_ARTIFACTSTAGINGDIRECTORY"/ 2>/dev/null || true
+          cp "$PROJECT_DIRECTORY"/target/*.war "$BUILD_ARTIFACTSTAGINGDIRECTORY"/ 2>/dev/null || true
+
+      # --- mapped from: PublishBuildArtifacts@1 ---
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
+          if-no-files-found: error
+
+      # --- mapped from: script 'Register artifact in Artifactory' ---
+      - name: Register artifact in Artifactory
+        if: github.event_name == 'push'
+        run: |
+          python3 build-tools/scripts/publish_artifact.py \
+            --name "$ARTIFACT_NAME" \
+            --registry Artifactory \
+            --build-id "$BUILD_BUILDID"
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      # --- mapped from: checkout: self ---
+      - uses: actions/checkout@v4
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory)/$(Agent.*) predefined vars ---
+      - name: Map ADO agent variables
+        run: |
+          {
+            echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/staging"
+            echo "AGENT_NAME=$RUNNER_NAME"
+            echo "AGENT_OS=$RUNNER_OS"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/staging"
+
+      # --- mapped from: DownloadBuildArtifacts@1 → $(Pipeline.Workspace)/<artifactName> ---
+      - name: Download ${{ env.ARTIFACT_NAME }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.ARTIFACT_NAME }}
+
+      # --- mapped from: script 'Execute deployment' ---
+      - name: Execute deployment
+        run: |
+          echo "Deploying $ARTIFACT_NAME to $DEPLOY_ENVIRONMENT"
+          echo "Strategy: rolling"
+
+      # --- mapped from: script 'Notify D2' — displayed as 'Notify release-orchestrator' in the live ADO master template ---
+      - name: Notify D2
+        run: |
+          python3 build-tools/scripts/notify_release_orchestrator.py \
+            --service "$ARTIFACT_NAME" \
+            --env "$DEPLOY_ENVIRONMENT" \
+            --build-id "$BUILD_BUILDID" \
+            --status success
+
+      # --- mapped from: script 'Generate compliance attestation' ---
+      - name: Generate compliance attestation
+        run: |
+          python3 build-tools/scripts/generate_attestation.py \
+            --artifact "$ARTIFACT_NAME" \
+            --env "$DEPLOY_ENVIRONMENT" \
+            --build-id "$BUILD_BUILDID"
+
+      # --- mapped from: GHA addition to retain the attestation record ---
+      - name: Upload compliance attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-api-staging-attestation
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/*-attestation.json
