@@ -1,0 +1,245 @@
+# settlement-gateway-ci CI workflow
+# Migrated from: classic (designer) ADO build definition `settlement-gateway-classic`
+#   (definition id 9 in danagajewski/danagajewski-demo, revision 2, read via
+#   GET /_apis/build/definitions/9?api-version=7.1; committed cross-check export at
+#   docs/migration/ado-exports/settlement-gateway-classic.json)
+# Stack: Python 3.11 (pytest) with inline PowerShell Core build steps
+# Original template source: none — classic definitions have no YAML templates; the
+#   single phase "Build settlement gateway" and its seven tasks are inlined below
+#
+# ADO tasks inlined:
+#   - UsePythonVersion@0
+#   - PowerShell@2 (inline, pwsh) "Stamp version and write build manifest"
+#   - Bash@3 (inline) "Install dependencies"
+#   - Bash@3 (inline) "Run unit tests"
+#   - PublishTestResults@2
+#   - PowerShell@2 (inline, pwsh) "Package and register artifact"
+#   - PublishBuildArtifacts@1
+#
+# Mapping document: docs/migration/settlement-gateway-classic-ado-to-gha-mapping.md
+
+name: settlement-gateway-ci
+
+on:
+  # --- mapped from: triggers[continuousIntegration] branchFilters +refs/heads/main, pathFilters +/services/settlement-gateway ---
+  push:
+    branches: [main]
+    paths:
+      - 'services/settlement-gateway/**'
+      - '.github/workflows/settlement-gateway-ci.yml'
+  # --- mapped from: triggers[pullRequest] branchFilters +refs/heads/main, pathFilters +/services/settlement-gateway ---
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/settlement-gateway/**'
+      - '.github/workflows/settlement-gateway-ci.yml'
+  # --- mapped from: variables.SETTLEMENT_ENV allowOverride: true (queue-time override) ---
+  workflow_dispatch:
+    inputs:
+      settlement_env:
+        description: 'Target settlement environment (ADO variable SETTLEMENT_ENV)'
+        required: false
+        default: 'dev'
+        type: string
+
+permissions:
+  contents: read
+
+# --- mapped from: triggers[continuousIntegration].maxConcurrentBuildsPerBranch: 1 ---
+concurrency:
+  group: settlement-gateway-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # --- mapped from: variables.SETTLEMENT_ENV (value: dev, allowOverride: true) ---
+  SETTLEMENT_ENV: ${{ inputs.settlement_env || 'dev' }}
+  ARTIFACT_NAME: settlement-gateway-drop
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # --- mapped from: process.phases[0] "Build settlement gateway" (refName Phase_1) ---
+  build:
+    name: Build settlement gateway
+    # --- mapped from: target.agentSpecification.identifier: ubuntu-22.04 on hosted pool "Azure Pipelines" ---
+    runs-on: ubuntu-22.04
+    # --- mapped from: jobTimeoutInMinutes: 60 ---
+    timeout-minutes: 60
+    env:
+      # --- ADO agent variable shims so the inline scripts run unmodified ---
+      BUILD_SOURCEBRANCH: ${{ github.ref }}
+      BUILD_SOURCEBRANCHNAME: ${{ github.ref_name }}
+      BUILD_SOURCEVERSION: ${{ github.sha }}
+      BUILD_BUILDID: ${{ github.run_id }}
+      BUILD_SOURCESDIRECTORY: ${{ github.workspace }}
+      PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # --- mapped from: repository checkout (implicit "Checkout cog-devops-demo/azure-pipelines" job step) ---
+      - uses: actions/checkout@v4
+
+      # --- mapped from: UsePythonVersion@0 (versionSpec 3.11, addToPath true, architecture x64) ---
+      - name: Use Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          architecture: x64
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory) — agent-provided in ADO, created here on the fresh runner ---
+      - name: Create artifact staging directory
+        run: |
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/staging" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/staging"
+
+      # --- mapped from: PowerShell@2 "Stamp version and write build manifest" (targetType inline, pwsh true, errorActionPreference stop) ---
+      # Inline script kept verbatim except for the ADO logging commands:
+      #   ##vso[task.logissue type=error]  -> ::error::
+      #   ##vso[task.setvariable variable=settlementVersion] -> $GITHUB_ENV (as SETTLEMENTVERSION, the
+      #   upper-cased env name the ADO agent exposes to later tasks)
+      - name: Stamp version and write build manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # --- environment sanity -------------------------------------------------
+          $required = @('BUILD_SOURCEBRANCHNAME','BUILD_BUILDID','SETTLEMENT_ENV')
+          foreach ($name in $required) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              Write-Host "::error::missing required variable $name"
+              exit 1
+            }
+            Write-Host "checked $name"
+          }
+
+          # --- derive the release version ----------------------------------------
+          $branch = $env:BUILD_SOURCEBRANCHNAME
+          $buildId = $env:BUILD_BUILDID
+          $major = 4
+          $minor = 2
+          switch -Wildcard ($branch) {
+            'main'      { $suffix = ''; break }
+            'release*'  { $suffix = '-rc'; break }
+            'hotfix*'   { $suffix = '-hf'; break }
+            default     { $suffix = '-dev'; break }
+          }
+          $version = "$major.$minor.$buildId$suffix"
+          Write-Host "resolved version $version for branch $branch"
+          Add-Content -Path $env:GITHUB_ENV -Value "SETTLEMENTVERSION=$version"
+
+          # --- write the legacy build manifest the downstream release job reads ---
+          $stagingDir = $env:BUILD_ARTIFACTSTAGINGDIRECTORY
+          New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+          $manifestPath = Join-Path $stagingDir 'build-manifest.json'
+          $manifest = [ordered]@{
+            component   = 'settlement-gateway'
+            version     = $version
+            branch      = $branch
+            buildId     = $buildId
+            environment = $env:SETTLEMENT_ENV
+            builtAtUtc  = (Get-Date).ToUniversalTime().ToString('o')
+            checksums   = @{}
+          }
+
+          # --- checksum every source file so the manifest is reproducible ---------
+          $sourceRoot = Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/src'
+          if (-not (Test-Path $sourceRoot)) {
+            Write-Host "::error::source root $sourceRoot does not exist"
+            exit 1
+          }
+          Get-ChildItem -Path $sourceRoot -Recurse -Filter '*.py' | ForEach-Object {
+            $relative = $_.FullName.Substring($env:BUILD_SOURCESDIRECTORY.Length + 1)
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
+            $manifest.checksums[$relative] = $hash
+            Write-Host "hashed $relative"
+          }
+
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
+          Write-Host "wrote $manifestPath"
+
+      # --- mapped from: Bash@3 "Install dependencies" (targetType inline) ---
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r services/settlement-gateway/requirements.txt
+
+      # --- mapped from: Bash@3 "Run unit tests" (targetType inline); $(Build.ArtifactStagingDirectory) -> $BUILD_ARTIFACTSTAGINGDIRECTORY ---
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          cd services/settlement-gateway
+          python -m pytest tests --junitxml="$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results/junit.xml"
+
+      # --- mapped from: PublishTestResults@2 (testRunner JUnit, testRunTitle "settlement-gateway unit tests", condition succeededOrFailed) ---
+      # GHA has no native test-results tab; the JUnit XML is retained as an artifact.
+      - name: Publish test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: settlement-gateway-test-results
+          path: ${{ runner.temp }}/staging/test-results/*.xml
+          if-no-files-found: warn
+
+      # --- mapped from: PowerShell@2 "Package and register artifact" (targetType inline, pwsh true, errorActionPreference stop) ---
+      # Inline script kept verbatim except ##vso[task.logissue type=warning] -> ::warning::.
+      # The registry URL is only supplied on pushes so pull requests never register a package;
+      # PR builds still produce the zip and a local "skipped" receipt, exactly as ADO does
+      # when SETTLEMENT_REGISTRY_URL is unset.
+      - name: Package and register artifact
+        shell: pwsh
+        env:
+          SETTLEMENT_REGISTRY_URL: ${{ github.event_name == 'push' && secrets.SETTLEMENT_REGISTRY_URL || '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $staging = $env:BUILD_ARTIFACTSTAGINGDIRECTORY
+          $version = $env:SETTLEMENTVERSION
+          $package = Join-Path $staging "settlement-gateway-$version.zip"
+
+          # --- assemble the payload ----------------------------------------------
+          $payload = Join-Path $staging 'payload'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item -Recurse -Force `
+            (Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/src') `
+            (Join-Path $payload 'src')
+          Copy-Item -Force `
+            (Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/requirements.txt') `
+            (Join-Path $payload 'requirements.txt')
+          Copy-Item -Force (Join-Path $staging 'build-manifest.json') $payload
+
+          Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $package -Force
+          Remove-Item -Recurse -Force $payload
+          Write-Host "packaged $package"
+
+          # --- register the package with the artifact registry --------------------
+          # The legacy pipeline pushed to Artifactory over a shared service account.
+          # The demo estate has no Artifactory, so registration is recorded locally and
+          # the publish step is skipped unless SETTLEMENT_REGISTRY_URL is configured.
+          $registry = $env:SETTLEMENT_REGISTRY_URL
+          $receipt = Join-Path $staging 'registry-receipt.json'
+          if ([string]::IsNullOrWhiteSpace($registry)) {
+            Write-Host "::warning::no registry configured; recording a local receipt only"
+            $entry = [ordered]@{
+              registry = 'none'
+              status   = 'skipped'
+              package  = [System.IO.Path]::GetFileName($package)
+              version  = $version
+            }
+          } else {
+            $entry = [ordered]@{
+              registry = $registry
+              status   = 'published'
+              package  = [System.IO.Path]::GetFileName($package)
+              version  = $version
+            }
+          }
+          $entry | ConvertTo-Json | Set-Content -Path $receipt -Encoding utf8
+          Write-Host "wrote $receipt"
+
+      # --- mapped from: PublishBuildArtifacts@1 (PathtoPublish $(Build.ArtifactStagingDirectory), ArtifactName settlement-gateway-drop, condition succeededOrFailed) ---
+      - name: Publish build artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: warn

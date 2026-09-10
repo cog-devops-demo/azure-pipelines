@@ -15,3 +15,7 @@ The definition stamps a version and writes a build manifest from inline
 PowerShell, installs dependencies, runs pytest, publishes the JUnit results,
 packages the payload, records an artifact-registry receipt, and publishes
 `settlement-gateway-drop`.
+
+The GitHub Actions equivalent is `.github/workflows/settlement-gateway-ci.yml`;
+see `docs/migration/settlement-gateway-classic-ado-to-gha-mapping.md` for the
+task-by-task mapping.

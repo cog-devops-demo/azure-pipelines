@@ -1,0 +1,16 @@
+{
+  "service": "settlement-gateway",
+  "expected_test_suites": 1,
+  "expected_total_tests": 8,
+  "expected_passed_tests": 8,
+  "minimum_pass_rate": 1.0,
+  "frameworks": [
+    "pytest"
+  ],
+  "status": "observed",
+  "source": "azure-devops-run",
+  "measurement": "ADO test run 'settlement-gateway unit tests' published by PublishTestResults@2 (8 tests)",
+  "ado_build_id": 235,
+  "ado_commit": "d768a522",
+  "last_updated": "2026-09-10"
+}
