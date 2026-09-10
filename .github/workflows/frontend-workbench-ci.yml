@@ -1,0 +1,218 @@
+# frontend-workbench-ci CI workflow
+# Migrated from: services/frontend-workbench/azure-pipelines.yml (ADO pipeline ID 106)
+# Stack: Node.js 18.x / React (client bundle + SSR bundle)
+# Original template source: shared-ci-platform @ team/frontend-custom (alt-templates/frontend, owned by team-frontend)
+#   Resolved from the live ADO repo danagajewski-demo/shared-ci-platform, branch team/frontend-custom (ce3ed1b1);
+#   both templates are byte-identical to the copies on this repo's main.
+#
+# ADO templates inlined:
+#   - alt-templates/frontend/frontend-build.yml   (nodeVersion 18.x, framework react, enableSSR true,
+#                                                  projectDirectory services/frontend-workbench,
+#                                                  artifactName frontend-workbench-bundle)
+#   - alt-templates/frontend/frontend-deploy.yml  (environment dev,     cdnPurge default true)
+#   - alt-templates/frontend/frontend-deploy.yml  (environment staging, cdnPurge default true)
+#
+# ADO variable groups attached to pipeline 106 (definition-level, not referenced in the YAML):
+#   - shared-ci-secrets (VG 201)    — not consumed by any step of this pipeline; not mapped
+#   - frontend-cdn-config (VG 210)  — CDN_ENDPOINT, CDN_STORAGE_ACCOUNT (plain) → GitHub environment variables
+#                                     CDN_STORAGE_KEY, CDN_PURGE_API_KEY (secret) → GitHub environment secrets
+#     The inlined deploy template only echoes, so the values are exposed to the deploy jobs but not used.
+#
+# Known pre-existing gap (preserved on purpose, see the mapping doc): frontend-deploy.yml has no
+# condition parameter, so the former main-branch-only guard on the staging deploy is lost in ADO
+# and is therefore also absent here.
+#
+# Mapping document: docs/migration/frontend-workbench-ci-ado-to-gha-mapping.md
+
+name: frontend-workbench-ci
+
+# --- mapped from: trigger.branches.include [main, feature/*] / trigger.paths.include [services/frontend-workbench/**] ---
+# ADO `feature/*` is single-level; GHA `feature/**` is recursive (intentional broadening, documented).
+# pull_request is an explicit addition (ADO relied on the implicit PR validation trigger, which has no path filter).
+# The workflow file itself is listed so workflow-only changes are exercised.
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+    paths:
+      - 'services/frontend-workbench/**'
+      - '.github/workflows/frontend-workbench-ci.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/frontend-workbench/**'
+      - '.github/workflows/frontend-workbench-ci.yml'
+
+permissions:
+  contents: read
+
+# --- mapped from: variables.artifactName + template parameter projectDirectory ---
+env:
+  ARTIFACT_NAME: frontend-workbench-bundle
+  PROJECT_DIRECTORY: services/frontend-workbench
+  # --- mapped from: $(Build.ArtifactStagingDirectory) ---
+  BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ github.workspace }}/.staging
+  # --- mapped from: $(Pipeline.Workspace) (DownloadBuildArtifacts@1 downloadPath) ---
+  PIPELINE_WORKSPACE: ${{ github.workspace }}/.pipeline-workspace
+
+jobs:
+  # --- mapped from: stage Build ("Build frontend-workbench") / job build ---
+  #     steps: alt-templates/frontend/frontend-build.yml@team/frontend-custom
+  build:
+    name: Build frontend-workbench
+    # --- mapped from: pool.vmImage ubuntu-latest ---
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        # --- mapped from: workingDirectory ${{ parameters.projectDirectory }} ---
+        working-directory: services/frontend-workbench
+    steps:
+      # --- mapped from: implicit `checkout: self` of a non-deployment ADO job ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: NodeTool@0 (versionSpec 18.x) ---
+      - name: Install Node.js 18.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      # --- mapped from: script `npm ci` ("Install dependencies") ---
+      - name: Install dependencies
+        run: npm ci
+
+      # --- mapped from: script `npm run lint` ("Lint check") ---
+      - name: Lint check
+        run: npm run lint
+
+      # --- mapped from: script `npm run build:${{ parameters.framework }}` (framework=react) ---
+      - name: Build react app
+        run: npm run build:react
+
+      # --- mapped from: `${{ if eq(parameters.enableSSR, true) }}` → script `npm run build:ssr` (enableSSR=true) ---
+      - name: Build SSR bundle
+        run: npm run build:ssr
+
+      # --- mapped from: script `npm test -- --ci --coverage` ("Run tests") ---
+      # ADO publishes no test results for this pipeline (no PublishTestResults@2 in the template);
+      # the node:test TAP summary in the log is the only record, exactly as in ADO.
+      - name: Run tests
+        run: npm test -- --ci --coverage
+
+      # --- mapped from: ArchiveFiles@2 (rootFolderOrFile <projectDirectory>/build/, includeRootFolder false,
+      #                  archiveType zip, archiveFile $(Build.ArtifactStagingDirectory)/<artifactName>.zip) ---
+      - name: Archive frontend bundle
+        run: |
+          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+          (cd build && zip -qr "$BUILD_ARTIFACTSTAGINGDIRECTORY/$ARTIFACT_NAME.zip" .)
+          ls -l "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory), artifactName <artifactName>) ---
+      - name: Upload frontend bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
+          if-no-files-found: error
+
+  # --- mapped from: stage DeployFrontend_dev ("Deploy frontend to dev") ---
+  #     template: alt-templates/frontend/frontend-deploy.yml@team/frontend-custom (environment=dev)
+  #     deployment job deploy_frontend ("Deploy frontend assets"), strategy runOnce
+  # ADO declares no dependsOn/condition: the stage runs after Build on every triggering build,
+  # including pull request validation builds. That behaviour is preserved.
+  deploy_frontend_dev:
+    name: Deploy frontend to dev
+    needs: build
+    # --- mapped from: deployment job pool.vmImage ubuntu-latest ---
+    runs-on: ubuntu-latest
+    # --- mapped from: environment '${{ parameters.environment }}-frontend' (ADO env dev-frontend, no checks) ---
+    environment: dev-frontend
+    env:
+      DEPLOY_ENVIRONMENT: dev
+      # --- mapped from: variable group frontend-cdn-config (VG 210) ---
+      CDN_ENDPOINT: ${{ vars.CDN_ENDPOINT }}
+      CDN_STORAGE_ACCOUNT: ${{ vars.CDN_STORAGE_ACCOUNT }}
+      CDN_STORAGE_KEY: ${{ secrets.CDN_STORAGE_KEY }}
+      CDN_PURGE_API_KEY: ${{ secrets.CDN_PURGE_API_KEY }}
+    steps:
+      # --- mapped from: `checkout: self` ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: DownloadBuildArtifacts@1 (buildType current, downloadType single,
+      #                  artifactName <artifactName>, downloadPath $(Pipeline.Workspace)) ---
+      - name: Download frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.PIPELINE_WORKSPACE }}/${{ env.ARTIFACT_NAME }}
+
+      # --- mapped from: script "Upload to CDN" ---
+      - name: Upload to CDN
+        run: |
+          echo "Uploading static assets to CDN..."
+          echo "Environment: $DEPLOY_ENVIRONMENT"
+
+      # --- mapped from: `${{ if eq(parameters.cdnPurge, true) }}` → script "Purge CDN cache" (cdnPurge default true) ---
+      - name: Purge CDN cache
+        run: |
+          echo "Purging CDN cache for $DEPLOY_ENVIRONMENT..."
+
+      # --- mapped from: script "Health check" (preserved verbatim, including the target host) ---
+      - name: Health check
+        run: |
+          echo "Verifying deployment health..."
+          curl -sf "https://$DEPLOY_ENVIRONMENT.example.com/health" || exit 1
+
+  # --- mapped from: stage DeployFrontend_staging ("Deploy frontend to staging") ---
+  #     template: alt-templates/frontend/frontend-deploy.yml@team/frontend-custom (environment=staging)
+  #     deployment job deploy_frontend ("Deploy frontend assets"), strategy runOnce
+  # PRE-EXISTING GAP (preserved): the ADO YAML records that the former main-branch-only guard on this
+  # stage was lost because frontend-deploy.yml has no condition parameter. No `if:` is added here so
+  # behaviour matches ADO; restoring the guard is tracked in the mapping document.
+  deploy_frontend_staging:
+    name: Deploy frontend to staging
+    needs: deploy_frontend_dev
+    # --- mapped from: deployment job pool.vmImage ubuntu-latest ---
+    runs-on: ubuntu-latest
+    # --- mapped from: environment '${{ parameters.environment }}-frontend' (ADO env staging-frontend, 1 approver: team-frontend) ---
+    environment: staging-frontend
+    env:
+      DEPLOY_ENVIRONMENT: staging
+      # --- mapped from: variable group frontend-cdn-config (VG 210) ---
+      CDN_ENDPOINT: ${{ vars.CDN_ENDPOINT }}
+      CDN_STORAGE_ACCOUNT: ${{ vars.CDN_STORAGE_ACCOUNT }}
+      CDN_STORAGE_KEY: ${{ secrets.CDN_STORAGE_KEY }}
+      CDN_PURGE_API_KEY: ${{ secrets.CDN_PURGE_API_KEY }}
+    steps:
+      # --- mapped from: `checkout: self` ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: DownloadBuildArtifacts@1 (buildType current, downloadType single,
+      #                  artifactName <artifactName>, downloadPath $(Pipeline.Workspace)) ---
+      - name: Download frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.PIPELINE_WORKSPACE }}/${{ env.ARTIFACT_NAME }}
+
+      # --- mapped from: script "Upload to CDN" ---
+      - name: Upload to CDN
+        run: |
+          echo "Uploading static assets to CDN..."
+          echo "Environment: $DEPLOY_ENVIRONMENT"
+
+      # --- mapped from: `${{ if eq(parameters.cdnPurge, true) }}` → script "Purge CDN cache" (cdnPurge default true) ---
+      - name: Purge CDN cache
+        run: |
+          echo "Purging CDN cache for $DEPLOY_ENVIRONMENT..."
+
+      # --- mapped from: script "Health check" (preserved verbatim, including the target host) ---
+      - name: Health check
+        run: |
+          echo "Verifying deployment health..."
+          curl -sf "https://$DEPLOY_ENVIRONMENT.example.com/health" || exit 1
