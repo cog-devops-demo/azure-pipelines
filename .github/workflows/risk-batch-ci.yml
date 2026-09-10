@@ -1,0 +1,215 @@
+# risk-batch-ci CI workflow
+# Migrated from: services/risk-batch/azure-pipelines.yml (ADO pipeline ID 104; live definition id 6 in danagajewski/danagajewski-demo)
+# Stack: Python 3.11
+# Original template source: shared-ci-platform @ staging/preprod (commit a3eeb522)
+#
+# ADO templates inlined:
+#   - templates/build/build-python.yml
+#   - templates/test/run-tests.yml
+#   - templates/release/release-standard.yml
+#
+# Mapping document: docs/migration/risk-batch-ci-ado-to-gha-mapping.md
+
+name: risk-batch-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/risk-batch/**'
+      - '.github/workflows/risk-batch-ci.yml'
+      - 'build-tools/scripts/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/risk-batch/**'
+      - '.github/workflows/risk-batch-ci.yml'
+      - 'build-tools/scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: risk-batch-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ARTIFACT_NAME: risk-batch-dist
+  PYTHON_VERSION: '3.11'
+  PROJECT_DIRECTORY: services/risk-batch
+  REQUIREMENTS_FILE: services/risk-batch/requirements.txt
+
+jobs:
+  build:
+    name: Build risk-batch
+    runs-on: ubuntu-latest
+    env:
+      BUILD_ARTIFACTSTAGINGDIRECTORY: $RUNNER_TEMP/staging
+      RISK_DB_CONNECTION_STRING: ${{ secrets.RISK_DB_CONNECTION_STRING }}
+    steps:
+      # --- mapped from: checkout: self (implicit) ---
+      - uses: actions/checkout@v4
+
+      # --- mapped from: UsePythonVersion@0 ---
+      - name: Use Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory) — agent-provided in ADO ---
+      - name: Create artifact staging directory
+        run: |
+          export BUILD_ARTIFACTSTAGINGDIRECTORY="$RUNNER_TEMP/staging"
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$BUILD_ARTIFACTSTAGINGDIRECTORY" >> "$GITHUB_ENV"
+          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+
+      # --- mapped from: build-python.yml 'Install dependencies' ---
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r "$REQUIREMENTS_FILE"
+
+      # --- mapped from: build-python.yml 'Run linting checks' ---
+      - name: Run linting checks
+        working-directory: ${{ env.PROJECT_DIRECTORY }}
+        run: |
+          pip install flake8 black mypy
+          flake8 src/ --max-line-length=120
+          black --check src/
+
+      # --- mapped from: build-python.yml 'Run tests with coverage' ---
+      - name: Run tests with coverage
+        working-directory: ${{ env.PROJECT_DIRECTORY }}
+        run: |
+          pip install pytest pytest-cov
+          pytest tests/ --junitxml="$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results.xml" --cov=src/ --cov-report=xml:"$BUILD_ARTIFACTSTAGINGDIRECTORY/coverage.xml"
+
+      # --- mapped from: PublishTestResults@2 in build-python.yml ---
+      - name: Publish test results (build)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-batch-test-results
+          path: ${{ runner.temp }}/staging/test-results.xml
+          if-no-files-found: warn
+
+      # --- mapped from: build-python.yml 'Build distribution' ---
+      - name: Build distribution
+        working-directory: ${{ env.PROJECT_DIRECTORY }}
+        run: |
+          python setup.py sdist bdist_wheel
+          cp -r dist/ "$BUILD_ARTIFACTSTAGINGDIRECTORY/dist/"
+
+      # --- mapped from: PublishBuildArtifacts@1 ---
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: error
+
+      # --- mapped from: build-python.yml 'Register artifact in Artifactory' ---
+      - name: Register artifact in Artifactory
+        if: github.event_name == 'push'
+        env:
+          BUILD_SOURCEBRANCH: ${{ github.ref }}
+          BUILD_SOURCEVERSION: ${{ github.sha }}
+          AGENT_NAME: ${{ runner.name }}
+        run: |
+          python build-tools/scripts/publish_artifact.py --name "$ARTIFACT_NAME" --registry Artifactory --build-id "${{ github.run_id }}"
+
+      # --- mapped from: run-tests.yml 'Create test results directory' ---
+      - name: Create test results directory
+        run: mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results"
+
+      # --- mapped from: run-tests.yml 'Run pytest' ---
+      - name: Run pytest
+        working-directory: ${{ env.PROJECT_DIRECTORY }}
+        run: |
+          pytest tests/ --junitxml="$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results/results.xml" --tb=short
+
+      # --- mapped from: PublishTestResults@2 in run-tests.yml ---
+      - name: Publish test results (run-tests)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-batch-run-tests-results
+          path: ${{ runner.temp }}/staging/test-results
+          if-no-files-found: warn
+
+      # --- mapped from: run-tests.yml 'Normalize test results' ---
+      - name: Normalize test results
+        if: always()
+        run: |
+          python build-tools/scripts/normalize_test_results.py --input-dir "$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results" --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/normalized-results.json"
+
+      # --- mapped from: extra GHA parity artifact ---
+      - name: Upload normalized test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-batch-normalized-results
+          path: ${{ runner.temp }}/staging/normalized-results.json
+          if-no-files-found: warn
+
+  deploy_dev:
+    name: Deploy to dev
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: dev
+    runs-on: ubuntu-latest
+    env:
+      BUILD_ARTIFACTSTAGINGDIRECTORY: $RUNNER_TEMP/staging
+      PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # --- mapped from: checkout: self ---
+      - uses: actions/checkout@v4
+
+      # --- mapped from: $(Build.ArtifactStagingDirectory) — agent-provided in ADO ---
+      - name: Create artifact staging directory
+        run: |
+          export BUILD_ARTIFACTSTAGINGDIRECTORY="$RUNNER_TEMP/staging"
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$BUILD_ARTIFACTSTAGINGDIRECTORY" >> "$GITHUB_ENV"
+          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+
+      # --- mapped from: DownloadBuildArtifacts@1 ---
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/pipeline-workspace/${{ env.ARTIFACT_NAME }}
+
+      # --- mapped from: release-standard.yml 'Execute deployment' ---
+      - name: Execute deployment
+        run: |
+          echo "Deploying $ARTIFACT_NAME to dev"
+          echo "Strategy: rolling"
+
+      # --- mapped from: release-standard.yml 'Notify release-orchestrator' ---
+      - name: Notify D2 (release-orchestrator)
+        env:
+          BUILD_REQUESTEDFOR: ${{ github.actor }}
+          SYSTEM_TEAMFOUNDATIONCOLLECTIONURI: ${{ github.server_url }}/
+          SYSTEM_TEAMPROJECT: ${{ github.repository }}
+        run: |
+          python build-tools/scripts/notify_release_orchestrator.py --service "$ARTIFACT_NAME" --env dev --build-id "${{ github.run_id }}" --status success
+
+      # --- mapped from: release-standard.yml 'Generate compliance attestation' ---
+      - name: Generate compliance attestation
+        env:
+          BUILD_SOURCEBRANCH: ${{ github.ref }}
+          BUILD_SOURCEVERSION: ${{ github.sha }}
+          BUILD_DEFINITIONNAME: ${{ github.workflow }}
+          AGENT_OS: ${{ runner.os }}
+        run: |
+          python build-tools/scripts/generate_attestation.py --artifact "$ARTIFACT_NAME" --env dev --build-id "${{ github.run_id }}"
+
+      # --- mapped from: compliance artifact publication ---
+      - name: Upload compliance attestation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-batch-dev-attestation
+          path: ${{ runner.temp }}/staging/risk-batch-dist-attestation.json
+          if-no-files-found: error
