@@ -149,6 +149,7 @@ jobs:
           }
 
           missing_source_report() {
+            # shellcheck disable=SC2016  # backticks are markdown code spans, not substitutions
             printf '## Migration Validation Report\n\n**Service:** `%s`  \n**GHA Workflow:** `%s`\n\n| Check | Status | Details |\n|-------|--------|---------|\n| ADO Source | FAIL | mapped ADO source `%s` is missing |\n' "$1" "$2" "$3"
           }
 
@@ -192,7 +193,13 @@ jobs:
             for wf in .github/workflows/*.yml; do
               [ -f "$wf" ] || continue
               IFS='|' read -r SERVICE ADO_NAME ADO_PIPELINE KNOWN <<<"$(map_workflow "$(basename "$wf" .yml)")"
-              [ -f "$ADO_PIPELINE" ] || continue
+              if [ ! -f "$ADO_PIPELINE" ]; then
+                if [ "$KNOWN" = "1" ]; then
+                  echo "Mapped ADO source missing for $wf: $ADO_PIPELINE"
+                  REPORT="${REPORT}$(missing_source_report "$SERVICE" "$wf" "$ADO_PIPELINE")"$'\n\n'
+                fi
+                continue
+              fi
 
               echo "Validating (full scan): $SERVICE"
               RESULT=$(python validation/scripts/validate_migration.py \
