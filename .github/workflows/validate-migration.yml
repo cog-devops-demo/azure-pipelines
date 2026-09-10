@@ -91,6 +91,7 @@ jobs:
 
             # Extract service name from workflow filename
             BASE=$(basename "$wf" .yml)
+            ADO_NAME="$BASE"   # ADO definition name, when it differs from the workflow
             case "$BASE" in
               pricing-engine-ci)
                 SERVICE="pricing-engine"
@@ -120,6 +121,12 @@ jobs:
                 SERVICE="frontend-workbench"
                 ADO_PIPELINE="services/frontend-workbench/azure-pipelines.yml"
                 ;;
+              settlement-gateway-ci)
+                # classic (designer) ADO definition — no YAML in the repo
+                SERVICE="settlement-gateway"
+                ADO_NAME="settlement-gateway-classic"
+                ADO_PIPELINE="docs/migration/ado-exports/settlement-gateway-classic.json"
+                ;;
               regulatory-reporting-ci)
                 SERVICE="regulatory-reporting"
                 ADO_PIPELINE="services/regulatory-reporting/azure-pipelines.yml"
@@ -143,7 +150,7 @@ jobs:
               --baselines validation/baselines \
               --repo-root "$GITHUB_WORKSPACE")
             REPORT="${REPORT}${RESULT}"$'\n\n'
-            echo "$SERVICE|$BASE|$(basename "$wf")" >> /tmp/parity-targets.txt
+            echo "$SERVICE|$ADO_NAME|$(basename "$wf")" >> /tmp/parity-targets.txt
           done
 
           # Full scan on manual dispatch only

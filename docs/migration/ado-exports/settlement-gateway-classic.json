@@ -1,0 +1,255 @@
+{
+  "id": 9,
+  "name": "settlement-gateway-classic",
+  "revision": 2,
+  "type": "build",
+  "queueStatus": "enabled",
+  "path": "\\azure-pipelines-migration",
+  "jobAuthorizationScope": "projectCollection",
+  "jobTimeoutInMinutes": 60,
+  "process": {
+    "phases": [
+      {
+        "steps": [
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": false,
+            "displayName": "Use Python 3.11",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeeded()",
+            "task": {
+              "id": "33c63b11-352b-45a2-ba1b-54cb568a29ca",
+              "versionSpec": "0.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "versionSpec": "3.11",
+              "addToPath": "true",
+              "architecture": "x64"
+            }
+          },
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": false,
+            "displayName": "Stamp version and write build manifest",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeeded()",
+            "task": {
+              "id": "e213ff0f-5d5c-4791-802d-52ea3e7be1f1",
+              "versionSpec": "2.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "targetType": "inline",
+              "script": "$ErrorActionPreference = 'Stop'\n\n# --- environment sanity -------------------------------------------------\n$required = @('BUILD_SOURCEBRANCHNAME','BUILD_BUILDID','SETTLEMENT_ENV')\nforeach ($name in $required) {\n  $value = [Environment]::GetEnvironmentVariable($name)\n  if ([string]::IsNullOrWhiteSpace($value)) {\n    Write-Host \"##vso[task.logissue type=error]missing required variable $name\"\n    exit 1\n  }\n  Write-Host \"checked $name\"\n}\n\n# --- derive the release version ----------------------------------------\n$branch = $env:BUILD_SOURCEBRANCHNAME\n$buildId = $env:BUILD_BUILDID\n$major = 4\n$minor = 2\nswitch -Wildcard ($branch) {\n  'main'      { $suffix = ''; break }\n  'release*'  { $suffix = '-rc'; break }\n  'hotfix*'   { $suffix = '-hf'; break }\n  default     { $suffix = '-dev'; break }\n}\n$version = \"$major.$minor.$buildId$suffix\"\nWrite-Host \"resolved version $version for branch $branch\"\nWrite-Host \"##vso[task.setvariable variable=settlementVersion]$version\"\n\n# --- write the legacy build manifest the downstream release job reads ---\n$stagingDir = $env:BUILD_ARTIFACTSTAGINGDIRECTORY\nNew-Item -ItemType Directory -Force -Path $stagingDir | Out-Null\n$manifestPath = Join-Path $stagingDir 'build-manifest.json'\n$manifest = [ordered]@{\n  component   = 'settlement-gateway'\n  version     = $version\n  branch      = $branch\n  buildId     = $buildId\n  environment = $env:SETTLEMENT_ENV\n  builtAtUtc  = (Get-Date).ToUniversalTime().ToString('o')\n  checksums   = @{}\n}\n\n# --- checksum every source file so the manifest is reproducible ---------\n$sourceRoot = Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/src'\nif (-not (Test-Path $sourceRoot)) {\n  Write-Host \"##vso[task.logissue type=error]source root $sourceRoot does not exist\"\n  exit 1\n}\nGet-ChildItem -Path $sourceRoot -Recurse -Filter '*.py' | ForEach-Object {\n  $relative = $_.FullName.Substring($env:BUILD_SOURCESDIRECTORY.Length + 1)\n  $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash\n  $manifest.checksums[$relative] = $hash\n  Write-Host \"hashed $relative\"\n}\n\n$manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8\nWrite-Host \"wrote $manifestPath\"",
+              "pwsh": "true",
+              "errorActionPreference": "stop",
+              "failOnStderr": "false"
+            }
+          },
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": false,
+            "displayName": "Install dependencies",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeeded()",
+            "task": {
+              "id": "6c731c3c-3c68-459a-a5c9-bde6e6595b5b",
+              "versionSpec": "3.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "targetType": "inline",
+              "script": "set -euo pipefail\npython -m pip install --upgrade pip\npip install -r services/settlement-gateway/requirements.txt\n",
+              "failOnStderr": "false"
+            }
+          },
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": false,
+            "displayName": "Run unit tests",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeeded()",
+            "task": {
+              "id": "6c731c3c-3c68-459a-a5c9-bde6e6595b5b",
+              "versionSpec": "3.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "targetType": "inline",
+              "script": "set -euo pipefail\ncd services/settlement-gateway\npython -m pytest tests --junitxml=$(Build.ArtifactStagingDirectory)/test-results/junit.xml\n",
+              "failOnStderr": "false"
+            }
+          },
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": true,
+            "displayName": "Publish test results",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeededOrFailed()",
+            "task": {
+              "id": "0b0f01ed-7dde-43ff-9cbb-e48954daf9b1",
+              "versionSpec": "2.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "testRunner": "JUnit",
+              "testResultsFiles": "$(Build.ArtifactStagingDirectory)/test-results/*.xml",
+              "testRunTitle": "settlement-gateway unit tests",
+              "mergeTestResults": "true",
+              "publishRunAttachments": "true"
+            }
+          },
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": false,
+            "displayName": "Package and register artifact",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeeded()",
+            "task": {
+              "id": "e213ff0f-5d5c-4791-802d-52ea3e7be1f1",
+              "versionSpec": "2.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "targetType": "inline",
+              "script": "$ErrorActionPreference = 'Stop'\n\n$staging = $env:BUILD_ARTIFACTSTAGINGDIRECTORY\n$version = $env:SETTLEMENTVERSION\n$package = Join-Path $staging \"settlement-gateway-$version.zip\"\n\n# --- assemble the payload ----------------------------------------------\n$payload = Join-Path $staging 'payload'\nNew-Item -ItemType Directory -Force -Path $payload | Out-Null\nCopy-Item -Recurse -Force `\n  (Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/src') `\n  (Join-Path $payload 'src')\nCopy-Item -Force `\n  (Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/requirements.txt') `\n  (Join-Path $payload 'requirements.txt')\nCopy-Item -Force (Join-Path $staging 'build-manifest.json') $payload\n\nCompress-Archive -Path (Join-Path $payload '*') -DestinationPath $package -Force\nRemove-Item -Recurse -Force $payload\nWrite-Host \"packaged $package\"\n\n# --- register the package with the artifact registry --------------------\n# The legacy pipeline pushed to Artifactory over a shared service account.\n# The demo estate has no Artifactory, so registration is recorded locally and\n# the publish step is skipped unless SETTLEMENT_REGISTRY_URL is configured.\n$registry = $env:SETTLEMENT_REGISTRY_URL\n$receipt = Join-Path $staging 'registry-receipt.json'\nif ([string]::IsNullOrWhiteSpace($registry)) {\n  Write-Host \"##vso[task.logissue type=warning]no registry configured; recording a local receipt only\"\n  $entry = [ordered]@{\n    registry = 'none'\n    status   = 'skipped'\n    package  = [System.IO.Path]::GetFileName($package)\n    version  = $version\n  }\n} else {\n  $entry = [ordered]@{\n    registry = $registry\n    status   = 'published'\n    package  = [System.IO.Path]::GetFileName($package)\n    version  = $version\n  }\n}\n$entry | ConvertTo-Json | Set-Content -Path $receipt -Encoding utf8\nWrite-Host \"wrote $receipt\"",
+              "pwsh": "true",
+              "errorActionPreference": "stop",
+              "failOnStderr": "false"
+            }
+          },
+          {
+            "environment": {},
+            "enabled": true,
+            "continueOnError": false,
+            "alwaysRun": true,
+            "displayName": "Publish build artifact",
+            "timeoutInMinutes": 0,
+            "retryCountOnTaskFailure": 0,
+            "condition": "succeededOrFailed()",
+            "task": {
+              "id": "2ff763a7-ce83-4e1f-bc89-0ae63477cebe",
+              "versionSpec": "1.*",
+              "definitionType": "task"
+            },
+            "inputs": {
+              "PathtoPublish": "$(Build.ArtifactStagingDirectory)",
+              "ArtifactName": "settlement-gateway-drop",
+              "publishLocation": "Container"
+            }
+          }
+        ],
+        "name": "Build settlement gateway",
+        "refName": "Phase_1",
+        "condition": "succeeded()",
+        "target": {
+          "agentSpecification": {
+            "identifier": "ubuntu-22.04"
+          },
+          "executionOptions": {
+            "type": 0
+          },
+          "allowScriptsAuthAccessOption": false,
+          "type": 1
+        },
+        "jobAuthorizationScope": "projectCollection",
+        "jobTimeoutInMinutes": 60,
+        "jobCancelTimeoutInMinutes": 1
+      }
+    ],
+    "type": 1
+  },
+  "repository": {
+    "id": "cog-devops-demo/azure-pipelines",
+    "type": "GitHub",
+    "name": "cog-devops-demo/azure-pipelines",
+    "url": "https://github.com/cog-devops-demo/azure-pipelines.git",
+    "defaultBranch": "refs/heads/main",
+    "clean": null,
+    "checkoutSubmodules": false
+  },
+  "queue": {
+    "id": 9,
+    "name": "Azure Pipelines",
+    "pool": {
+      "name": "Azure Pipelines",
+      "isHosted": true
+    }
+  },
+  "triggers": [
+    {
+      "branchFilters": [
+        "+refs/heads/main"
+      ],
+      "pathFilters": [
+        "+/services/settlement-gateway"
+      ],
+      "batchChanges": false,
+      "maxConcurrentBuildsPerBranch": 1,
+      "triggerType": "continuousIntegration"
+    },
+    {
+      "branchFilters": [
+        "+refs/heads/main"
+      ],
+      "forks": {
+        "enabled": false,
+        "allowSecrets": false,
+        "allowFullAccessToken": false
+      },
+      "pathFilters": [
+        "+/services/settlement-gateway"
+      ],
+      "requireCommentsForNonTeamMembersOnly": false,
+      "requireCommentsForNonTeamMemberAndNonContributors": false,
+      "isCommentRequiredForPullRequest": false,
+      "commentOptionForks": "all",
+      "isCommentRequiredForForkedPullRequests": false,
+      "commentOptionInternalRepos": "all",
+      "isCommentRequiredForInternalRepoPRs": false,
+      "pipelineTriggerSettings": {
+        "forkProtectionEnabled": true,
+        "buildsEnabledForForks": false,
+        "enforceJobAuthScopeForForks": false,
+        "enforceNoAccessToSecretsFromForks": false,
+        "isCommentRequiredForPullRequest": false,
+        "requireCommentsForNonTeamMembersOnly": false,
+        "requireCommentsForNonTeamMemberAndNonContributors": false,
+        "isCommentRequiredForForkedPullRequests": null,
+        "commentOptionForks": null,
+        "isCommentRequiredForInternalRepoPRs": null,
+        "commentOptionInternalRepos": null
+      },
+      "triggerType": "pullRequest"
+    }
+  ],
+  "variables": {
+    "SETTLEMENT_ENV": {
+      "value": "dev",
+      "allowOverride": true
+    },
+    "system.debug": {
+      "value": "false",
+      "allowOverride": true
+    }
+  }
+}
