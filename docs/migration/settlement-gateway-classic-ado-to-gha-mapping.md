@@ -56,9 +56,9 @@ merge ref, before any task ran) — a pre-existing ADO-side flake, not a pipelin
 | 2 | `PowerShell@2` "Stamp version and write build manifest" | `targetType: inline`, `pwsh: true`, `errorActionPreference: stop`, `failOnStderr: false` | `shell: pwsh` run step, script verbatim | `##vso[task.logissue type=error]` → `::error::`; `##vso[task.setvariable variable=settlementVersion]` → `Add-Content $GITHUB_ENV "SETTLEMENTVERSION=…"` |
 | 3 | `Bash@3` "Install dependencies" | inline | bash run step, script verbatim | |
 | 4 | `Bash@3` "Run unit tests" | inline, `--junitxml=$(Build.ArtifactStagingDirectory)/test-results/junit.xml` | bash run step | `$(Build.ArtifactStagingDirectory)` macro → `$BUILD_ARTIFACTSTAGINGDIRECTORY` |
-| 5 | `PublishTestResults@2` "Publish test results" | `JUnit`, `$(Build.ArtifactStagingDirectory)/test-results/*.xml`, `mergeTestResults: true`, `alwaysRun`/`succeededOrFailed()` | `actions/upload-artifact@v4` `settlement-gateway-test-results`, `if: always()` | No native test tab in GHA; JUnit XML retained as artifact (parity script counts `testcase`s from it) |
+| 5 | `PublishTestResults@2` "Publish test results" | `JUnit`, `$(Build.ArtifactStagingDirectory)/test-results/*.xml`, `mergeTestResults: true`, `alwaysRun`/`succeededOrFailed()` | `actions/upload-artifact@v4` `settlement-gateway-test-results`, `if: ${{ !cancelled() }}` | No native test tab in GHA; JUnit XML retained as artifact (parity script counts `testcase`s from it) |
 | 6 | `PowerShell@2` "Package and register artifact" | inline, `pwsh: true` | `shell: pwsh` run step, script verbatim | `##vso[task.logissue type=warning]` → `::warning::`; `SETTLEMENT_REGISTRY_URL` supplied from `secrets` **only on `push`** |
-| 7 | `PublishBuildArtifacts@1` "Publish build artifact" | `PathtoPublish: $(Build.ArtifactStagingDirectory)`, `ArtifactName: settlement-gateway-drop`, `Container`, `succeededOrFailed()` | `actions/upload-artifact@v4` `settlement-gateway-drop`, `path: ${{ runner.temp }}/staging`, `if: always()` | `if-no-files-found: warn` mirrors ADO's "directory is empty" warning on failed builds |
+| 7 | `PublishBuildArtifacts@1` "Publish build artifact" | `PathtoPublish: $(Build.ArtifactStagingDirectory)`, `ArtifactName: settlement-gateway-drop`, `Container`, `succeededOrFailed()` | `actions/upload-artifact@v4` `settlement-gateway-drop`, `path: ${{ runner.temp }}/staging`, `if: ${{ !cancelled() }}` | `if-no-files-found: warn` mirrors ADO's "directory is empty" warning on failed builds |
 
 ## Variable mapping
 
@@ -79,7 +79,7 @@ merge ref, before any task ran) — a pre-existing ADO-side flake, not a pipelin
 | ADO | GHA |
 |---|---|
 | `condition: succeeded()` (default steps) | default step behaviour |
-| `alwaysRun: true` / `succeededOrFailed()` (publish test results, publish build artifact) | `if: always()` |
+| `alwaysRun: true` / `succeededOrFailed()` (publish test results, publish build artifact) | `if: ${{ !cancelled() }}` — runs after success or failure but, like `succeededOrFailed()`, not after cancellation |
 | `enabled: true` on all steps | all steps present (a disabled classic task would have been omitted) |
 
 ## Integration points

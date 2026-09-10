@@ -172,7 +172,7 @@ jobs:
       # --- mapped from: PublishTestResults@2 (testRunner JUnit, testRunTitle "settlement-gateway unit tests", condition succeededOrFailed) ---
       # GHA has no native test-results tab; the JUnit XML is retained as an artifact.
       - name: Publish test results
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: settlement-gateway-test-results
@@ -237,7 +237,7 @@ jobs:
 
       # --- mapped from: PublishBuildArtifacts@1 (PathtoPublish $(Build.ArtifactStagingDirectory), ArtifactName settlement-gateway-drop, condition succeededOrFailed) ---
       - name: Publish build artifact
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
