@@ -126,7 +126,7 @@ added to the workflow environment.
   condition and the environment gate.
 - The owner remains unknown, as recorded for pipeline 101 in the inventory
   report (§3 and §6). An owner should sign off on behavioral parity.
-- Inventory-listed variable groups `shared-ci-platform-secrets` and
+- Inventory-listed variable groups `shared-ci-secrets` and
   `artifact-registry-credentials` and service connection
   `AzureSubscription-Dev` have no runtime use in this YAML. They should be
   recreated as GitHub environment secrets only if the deploy stops being an

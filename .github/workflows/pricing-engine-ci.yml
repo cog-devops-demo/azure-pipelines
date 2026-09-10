@@ -102,7 +102,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pricing-engine-code-coverage
-          path: '**/coverage.cobertura.xml'
+          path: ${{ runner.temp }}/test-output/**/coverage.cobertura.xml
           if-no-files-found: warn
 
   test:
