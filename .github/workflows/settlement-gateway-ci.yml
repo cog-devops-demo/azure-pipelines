@@ -1,0 +1,181 @@
+name: settlement-gateway-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/settlement-gateway/**'
+      - '.github/workflows/settlement-gateway-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/settlement-gateway/**'
+      - '.github/workflows/settlement-gateway-ci.yml'
+  workflow_dispatch:
+
+env:
+  SETTLEMENT_ENV: dev
+
+jobs:
+  build:
+    name: Build settlement gateway
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Map ADO agent variables
+        run: |
+          set -euo pipefail
+          STAGING="$RUNNER_TEMP/a"
+          mkdir -p "$STAGING"
+          {
+            echo "BUILD_SOURCEBRANCHNAME=${GITHUB_REF_NAME##*/}"
+            echo "BUILD_BUILDID=${GITHUB_RUN_ID}"
+            echo "BUILD_SOURCESDIRECTORY=${GITHUB_WORKSPACE}"
+            echo "BUILD_ARTIFACTSTAGINGDIRECTORY=${STAGING}"
+          } >> "$GITHUB_ENV"
+
+      - name: Use Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+
+      - name: Stamp version and write build manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # --- environment sanity -------------------------------------------------
+          $required = @('BUILD_SOURCEBRANCHNAME','BUILD_BUILDID','SETTLEMENT_ENV')
+          foreach ($name in $required) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              Write-Host "::error::missing required variable $name"
+              exit 1
+            }
+            Write-Host "checked $name"
+          }
+
+          # --- derive the release version ----------------------------------------
+          $branch = $env:BUILD_SOURCEBRANCHNAME
+          $buildId = $env:BUILD_BUILDID
+          $major = 4
+          $minor = 2
+          switch -Wildcard ($branch) {
+            'main'      { $suffix = ''; break }
+            'release*'  { $suffix = '-rc'; break }
+            'hotfix*'   { $suffix = '-hf'; break }
+            default     { $suffix = '-dev'; break }
+          }
+          $version = "$major.$minor.$buildId$suffix"
+          Write-Host "resolved version $version for branch $branch"
+          "SETTLEMENTVERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # --- write the legacy build manifest the downstream release job reads ---
+          $stagingDir = $env:BUILD_ARTIFACTSTAGINGDIRECTORY
+          New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+          $manifestPath = Join-Path $stagingDir 'build-manifest.json'
+          $manifest = [ordered]@{
+            component   = 'settlement-gateway'
+            version     = $version
+            branch      = $branch
+            buildId     = $buildId
+            environment = $env:SETTLEMENT_ENV
+            builtAtUtc  = (Get-Date).ToUniversalTime().ToString('o')
+            checksums   = @{}
+          }
+
+          # --- checksum every source file so the manifest is reproducible ---------
+          $sourceRoot = Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/src'
+          if (-not (Test-Path $sourceRoot)) {
+            Write-Host "::error::source root $sourceRoot does not exist"
+            exit 1
+          }
+          Get-ChildItem -Path $sourceRoot -Recurse -Filter '*.py' | ForEach-Object {
+            $relative = $_.FullName.Substring($env:BUILD_SOURCESDIRECTORY.Length + 1)
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
+            $manifest.checksums[$relative] = $hash
+            Write-Host "hashed $relative"
+          }
+
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
+          Write-Host "wrote $manifestPath"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r services/settlement-gateway/requirements.txt
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          cd services/settlement-gateway
+          python -m pytest tests --junitxml="$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results/junit.xml"
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settlement-gateway-test-results
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/test-results/*.xml
+          if-no-files-found: error
+
+      - name: Package and register artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $staging = $env:BUILD_ARTIFACTSTAGINGDIRECTORY
+          $version = $env:SETTLEMENTVERSION
+          $package = Join-Path $staging "settlement-gateway-$version.zip"
+
+          # --- assemble the payload ----------------------------------------------
+          $payload = Join-Path $staging 'payload'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item -Recurse -Force `
+            (Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/src') `
+            (Join-Path $payload 'src')
+          Copy-Item -Force `
+            (Join-Path $env:BUILD_SOURCESDIRECTORY 'services/settlement-gateway/requirements.txt') `
+            (Join-Path $payload 'requirements.txt')
+          Copy-Item -Force (Join-Path $staging 'build-manifest.json') $payload
+
+          Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $package -Force
+          Remove-Item -Recurse -Force $payload
+          Write-Host "packaged $package"
+
+          # --- register the package with the artifact registry --------------------
+          # The legacy pipeline pushed to Artifactory over a shared service account.
+          # The demo estate has no Artifactory, so registration is recorded locally and
+          # the publish step is skipped unless SETTLEMENT_REGISTRY_URL is configured.
+          $registry = $env:SETTLEMENT_REGISTRY_URL
+          $receipt = Join-Path $staging 'registry-receipt.json'
+          if ([string]::IsNullOrWhiteSpace($registry)) {
+            Write-Host "::warning::no registry configured; recording a local receipt only"
+            $entry = [ordered]@{
+              registry = 'none'
+              status   = 'skipped'
+              package  = [System.IO.Path]::GetFileName($package)
+              version  = $version
+            }
+          } else {
+            $entry = [ordered]@{
+              registry = $registry
+              status   = 'published'
+              package  = [System.IO.Path]::GetFileName($package)
+              version  = $version
+            }
+          }
+          $entry | ConvertTo-Json | Set-Content -Path $receipt -Encoding utf8
+          Write-Host "wrote $receipt"
+
+      - name: Publish build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settlement-gateway-drop
+          path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}
