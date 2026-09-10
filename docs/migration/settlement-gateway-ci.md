@@ -49,7 +49,7 @@ runner rather than rewriting the scripts:
 
 | ADO | GitHub |
 |---|---|
-| `BUILD_SOURCEBRANCHNAME` | `GITHUB_REF_NAME` |
+| `BUILD_SOURCEBRANCHNAME` | `${GITHUB_REF_NAME##*/}` — ADO passes the last segment of `Build.SourceBranch`, so a PR is `merge`, not `43/merge`; the value lands in the manifest |
 | `BUILD_BUILDID` | `GITHUB_RUN_ID` |
 | `BUILD_SOURCESDIRECTORY` | `GITHUB_WORKSPACE` |
 | `BUILD_ARTIFACTSTAGINGDIRECTORY` | `$RUNNER_TEMP/a` |

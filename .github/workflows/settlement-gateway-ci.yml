@@ -31,7 +31,7 @@ jobs:
           STAGING="$RUNNER_TEMP/a"
           mkdir -p "$STAGING"
           {
-            echo "BUILD_SOURCEBRANCHNAME=${GITHUB_REF_NAME}"
+            echo "BUILD_SOURCEBRANCHNAME=${GITHUB_REF_NAME##*/}"
             echo "BUILD_BUILDID=${GITHUB_RUN_ID}"
             echo "BUILD_SOURCESDIRECTORY=${GITHUB_WORKSPACE}"
             echo "BUILD_ARTIFACTSTAGINGDIRECTORY=${STAGING}"
