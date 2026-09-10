@@ -68,3 +68,9 @@ Decided by the runtime parity section of `validate-migration`, which compares th
 the GHA run of the same commit on result, test count and artifact names — not by the stored
 baselines, which are advisory. If ADO has no completed run for the commit the row is an
 EXCEPTION, which is not a pass.
+
+The first run of this PR was exactly that EXCEPTION: definition 9's pull-request trigger
+carried a `/services/settlement-gateway` path filter, so a PR that only adds a workflow and
+this document never produced an ADO build to compare against. The filter was dropped from the
+PR trigger (the CI trigger on `main` keeps it), matching the other pipelines in the estate, so
+both platforms now build the same merge ref.
