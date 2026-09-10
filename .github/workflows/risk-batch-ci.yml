@@ -45,7 +45,6 @@ jobs:
     name: Build risk-batch
     runs-on: ubuntu-latest
     env:
-      BUILD_ARTIFACTSTAGINGDIRECTORY: $RUNNER_TEMP/staging
       RISK_DB_CONNECTION_STRING: ${{ secrets.RISK_DB_CONNECTION_STRING }}
     steps:
       # --- mapped from: checkout: self (implicit) ---
@@ -60,9 +59,8 @@ jobs:
       # --- mapped from: $(Build.ArtifactStagingDirectory) — agent-provided in ADO ---
       - name: Create artifact staging directory
         run: |
-          export BUILD_ARTIFACTSTAGINGDIRECTORY="$RUNNER_TEMP/staging"
-          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$BUILD_ARTIFACTSTAGINGDIRECTORY" >> "$GITHUB_ENV"
-          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/staging" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/staging"
 
       # --- mapped from: build-python.yml 'Install dependencies' ---
       - name: Install dependencies
@@ -144,7 +142,7 @@ jobs:
         run: |
           python build-tools/scripts/normalize_test_results.py --input-dir "$BUILD_ARTIFACTSTAGINGDIRECTORY/test-results" --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/normalized-results.json"
 
-      # --- mapped from: extra GHA parity artifact ---
+      # --- no ADO equivalent: retains the normalized JSON produced by run-tests.yml ---
       - name: Upload normalized test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -160,7 +158,6 @@ jobs:
     environment: dev
     runs-on: ubuntu-latest
     env:
-      BUILD_ARTIFACTSTAGINGDIRECTORY: $RUNNER_TEMP/staging
       PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       # --- mapped from: checkout: self ---
@@ -169,9 +166,8 @@ jobs:
       # --- mapped from: $(Build.ArtifactStagingDirectory) — agent-provided in ADO ---
       - name: Create artifact staging directory
         run: |
-          export BUILD_ARTIFACTSTAGINGDIRECTORY="$RUNNER_TEMP/staging"
-          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$BUILD_ARTIFACTSTAGINGDIRECTORY" >> "$GITHUB_ENV"
-          mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+          echo "BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/staging" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/staging"
 
       # --- mapped from: DownloadBuildArtifacts@1 ---
       - name: Download artifacts
@@ -190,8 +186,6 @@ jobs:
       - name: Notify D2 (release-orchestrator)
         env:
           BUILD_REQUESTEDFOR: ${{ github.actor }}
-          SYSTEM_TEAMFOUNDATIONCOLLECTIONURI: ${{ github.server_url }}/
-          SYSTEM_TEAMPROJECT: ${{ github.repository }}
         run: |
           python build-tools/scripts/notify_release_orchestrator.py --service "$ARTIFACT_NAME" --env dev --build-id "${{ github.run_id }}" --status success
 
@@ -205,7 +199,7 @@ jobs:
         run: |
           python build-tools/scripts/generate_attestation.py --artifact "$ARTIFACT_NAME" --env dev --build-id "${{ github.run_id }}"
 
-      # --- mapped from: compliance artifact publication ---
+      # --- no ADO equivalent: retains the attestation written by generate_attestation.py ---
       - name: Upload compliance attestation
         if: always()
         uses: actions/upload-artifact@v4

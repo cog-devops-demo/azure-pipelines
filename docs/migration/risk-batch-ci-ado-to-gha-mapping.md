@@ -83,7 +83,7 @@ consumer, so the generated JSON is retained as an artifact.
 | Agent-provided `$(Build.ArtifactStagingDirectory)` | `Create artifact staging directory` | Creates fresh-runner staging at `${{ runner.temp }}/staging`. |
 | `DownloadBuildArtifacts@1` | `Download artifacts` | Downloads `risk-batch-dist` to `${{ runner.temp }}/pipeline-workspace/risk-batch-dist`. |
 | `release-standard.yml` — `Execute deployment` | `Execute deployment` | Preserves the rolling strategy message and dev target. |
-| `release-standard.yml` — `Notify release-orchestrator` | `Notify D2 (release-orchestrator)` | Calls `notify_release_orchestrator.py`; GHA URL is provided through `PIPELINE_URL` and ADO identity variables are shimmed. |
+| `release-standard.yml` — `Notify release-orchestrator` | `Notify D2 (release-orchestrator)` | Calls `notify_release_orchestrator.py`; GHA URL is provided through `PIPELINE_URL`; `Build.RequestedFor` is shimmed. |
 | `release-standard.yml` — `Generate compliance attestation` | `Generate compliance attestation` | Calls `generate_attestation.py` with branch, commit, workflow, and runner OS shims. |
 | Compliance artifact publication | `Upload compliance attestation` | Uploads `risk-batch-dev-attestation` from `risk-batch-dist-attestation.json`. |
 
@@ -102,13 +102,12 @@ consumer, so the generated JSON is retained as an artifact.
 
 | ADO variable | GHA value |
 | --- | --- |
-| `Build.ArtifactStagingDirectory` | `BUILD_ARTIFACTSTAGINGDIRECTORY=${{ runner.temp }}/staging` |
+| `Build.ArtifactStagingDirectory` | `BUILD_ARTIFACTSTAGINGDIRECTORY=$RUNNER_TEMP/staging` (exported via `$GITHUB_ENV` by the first step of each job) |
 | `Build.SourceBranch` | `BUILD_SOURCEBRANCH=${{ github.ref }}` |
 | `Build.SourceVersion` | `BUILD_SOURCEVERSION=${{ github.sha }}` |
 | `Build.BuildId` | `${{ github.run_id }}` command argument |
 | `Build.RequestedFor` | `BUILD_REQUESTEDFOR=${{ github.actor }}` |
-| `System.TeamFoundationCollectionUri` | `SYSTEM_TEAMFOUNDATIONCOLLECTIONURI=${{ github.server_url }}/` |
-| `System.TeamProject` | `SYSTEM_TEAMPROJECT=${{ github.repository }}` |
+| `System.TeamFoundationCollectionUri` + `System.TeamProject` | Not shimmed; superseded by `PIPELINE_URL` (script falls back to them only when `PIPELINE_URL` is unset) |
 | `Build.DefinitionName` | `BUILD_DEFINITIONNAME=${{ github.workflow }}` |
 | `Agent.OS` | `AGENT_OS=${{ runner.os }}` |
 | `Agent.Name` | `AGENT_NAME=${{ runner.name }}` |
