@@ -1,0 +1,143 @@
+# portfolio-api-canary CI workflow
+# Migrated from: services/portfolio-api/azure-pipelines-canary.yml (ADO pipeline ID 103)
+# Stack: Java 17 / Maven
+# Original template source: shared-ci-platform templates/build/build-java.yml,
+#   selected at queue time by the `templateBranch` parameter from one of
+#   main / master / staging/preprod / staging/release-hardening
+#
+# ADO templates inlined:
+#   - templates/build/build-java.yml @ main
+#
+# Only the `main` template branch exists in this repository. The master,
+# staging/preprod and staging/release-hardening variants could not be read,
+# so every `templateBranch` choice below runs the `main` template logic and a
+# non-`main` choice emits a warning annotation. This workflow is a build smoke
+# test for manual and qualifying PR runs (no release stage) and should be
+# retired once the template branches are consolidated onto `main`.
+
+name: portfolio-api-canary
+
+# --- mapped from: trigger: none + parameters.templateBranch; pull_request trigger intentionally added for PR validation (not in ADO) ---
+on:
+  workflow_dispatch:
+    inputs:
+      templateBranch:
+        description: 'Template branch to use'
+        type: choice
+        default: main
+        options:
+          - main
+          - master
+          - staging/preprod
+          - staging/release-hardening
+  pull_request:
+    branches: [main]
+    paths: ['services/portfolio-api/**']
+
+# --- mapped from: variables + build-java.yml parameters ---
+env:
+  ARTIFACT_NAME: portfolio-api-canary          # $(artifactName)
+  TEMPLATES_BRANCH: ${{ inputs.templateBranch || 'main' }} # $(templates_branch)
+  PROJECT_DIR: services/portfolio-api          # parameters.projectDirectory
+  JDK_VERSION: '17'                            # parameters.jdkVersion
+  MAVEN_GOALS: clean package                   # parameters.mavenGoals (template default)
+  MAVEN_OPTIONS: -B -DskipTests=false          # parameters.mavenOptions (template default)
+
+jobs:
+  # --- mapped from: stage Build / job build ---
+  build:
+    name: Build portfolio-api (canary - ${{ inputs.templateBranch || 'main' }})
+    runs-on: ubuntu-latest
+    steps:
+      # --- mapped from: implicit checkout: self ---
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- mapped from: ${{ if eq(parameters.templateBranch, ...) }} template selector ---
+      - name: Resolve template branch
+        run: |
+          echo "Requested template branch: $TEMPLATES_BRANCH"
+          if [ "$TEMPLATES_BRANCH" != "main" ]; then
+            echo "::warning title=Template branch not verified::templates/build/build-java.yml@$TEMPLATES_BRANCH is not available in this repository; running the inlined main variant instead."
+          fi
+
+      # --- mapped from: JavaToolInstaller@0 (versionSpec 17, x64, PreInstalled) ---
+      - name: Install JDK ${{ env.JDK_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JDK_VERSION }}
+          architecture: x64
+          cache: maven
+
+      # --- mapped from: Maven@4 (mavenPomFile services/portfolio-api/pom.xml, goals 'clean package', options '-B -DskipTests=false') ---
+      - name: Maven ${{ env.MAVEN_GOALS }}
+        run: |
+          # shellcheck disable=SC2086  # MAVEN_OPTIONS / MAVEN_GOALS are intentionally word-split
+          mvn -f "$PROJECT_DIR/pom.xml" $MAVEN_OPTIONS $MAVEN_GOALS
+
+      # --- mapped from: Maven@4 publishJUnitResults: true, testResultsFiles '**/surefire-reports/TEST-*.xml' ---
+      - name: Collect JUnit test results
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/test-results"
+          find "$PROJECT_DIR" -type f -path '*/surefire-reports/TEST-*.xml' -exec cp {} "$RUNNER_TEMP/test-results/" \;
+
+      # --- mapped from: Maven@4 publishJUnitResults: true (GHA has no native test tab; results uploaded as an artifact) ---
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: warn
+
+      # --- mapped from: script 'Stage build artifacts' ---
+      - name: Stage build artifacts
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          cp "$PROJECT_DIR"/target/*.jar "$RUNNER_TEMP/staging/" 2>/dev/null || true
+          cp "$PROJECT_DIR"/target/*.war "$RUNNER_TEMP/staging/" 2>/dev/null || true
+
+      # --- mapped from: PublishBuildArtifacts@1 (pathToPublish $(Build.ArtifactStagingDirectory), artifactName $(artifactName)) ---
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: warn
+
+      # --- mapped from: script 'Register artifact in Artifactory' (build-tools/scripts/publish_artifact.py) ---
+      # ADO only ever ran this pipeline manually, so registration is allowed on workflow_dispatch;
+      # the guard keeps it off any trigger that might be added later (e.g. pull_request).
+      - name: Register artifact in Artifactory
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BUILD_SOURCEBRANCH: ${{ github.ref }}
+          BUILD_SOURCEVERSION: ${{ github.sha }}
+          BUILD_BUILDID: ${{ github.run_id }}
+          AGENT_NAME: ${{ runner.name }}
+          BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ runner.temp }}/staging
+          PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/staging"
+          python "$GITHUB_WORKSPACE/build-tools/scripts/publish_artifact.py" \
+            --name "$ARTIFACT_NAME" \
+            --registry Artifactory \
+            --build-id "$BUILD_BUILDID"
+
+      # --- mapped from: stage displayName 'Build portfolio-api (canary - ${{ parameters.templateBranch }})' ---
+      - name: Write canary run summary
+        if: always()
+        run: |
+          {
+            echo "## portfolio-api-canary — template branch \`$TEMPLATES_BRANCH\`"
+            echo
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Template executed | templates/build/build-java.yml @ main (inlined) |"
+            echo "| Template requested | $TEMPLATES_BRANCH |"
+            echo "| JDK | $JDK_VERSION |"
+            echo "| Maven | $MAVEN_OPTIONS $MAVEN_GOALS |"
+            echo "| Artifact | $ARTIFACT_NAME |"
+          } >> "$GITHUB_STEP_SUMMARY"
