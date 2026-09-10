@@ -33,13 +33,21 @@ def _is_classic(path: str) -> bool:
     return str(path).endswith(".json")
 
 
+def _classic_phase_steps(phase: dict) -> list[dict]:
+    """Enabled steps of a classic phase; disabled tasks are not requirements."""
+    return [s for s in phase.get("steps") or [] if s.get("enabled", True)]
+
+
 def _classic_steps(definition: dict) -> list[tuple[str, list[str]]]:
     """Return (phase name, step display names) for a classic definition."""
     phases = ((definition or {}).get("process") or {}).get("phases") or []
     return [
         (
             phase.get("name", "Phase"),
-            [s.get("displayName", "unnamed") for s in phase.get("steps") or []],
+            [
+                s.get("displayName", "unnamed")
+                for s in _classic_phase_steps(phase)
+            ],
         )
         for phase in phases
     ]
@@ -53,7 +61,7 @@ def _render_classic(definition: dict) -> str:
     for phase_name, _ in _classic_steps(definition):
         chunks.append(f"phase: {phase_name}")
     for phase in ((definition.get("process") or {}).get("phases") or []):
-        for step in phase.get("steps") or []:
+        for step in _classic_phase_steps(phase):
             chunks.append(f"step: {step.get('displayName', 'unnamed')}")
             for key, value in (step.get("inputs") or {}).items():
                 chunks.append(f"  {key}: {value}")
@@ -65,7 +73,10 @@ def _load_yaml(path: str) -> dict | None:
     with open(path) as f:
         raw = f.read()
     if _is_classic(path):
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
     if yaml:
         try:
             return yaml.safe_load(raw)
@@ -144,7 +155,11 @@ def _expand_ado_source_details(
         return "", [], [f"{ado_path}@unknown"]
 
     if _is_classic(ado_path):
-        return f"# ADO source: {ado_path}\n{_render_classic(json.loads(raw))}", [], []
+        try:
+            definition = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return "", [], [f"{ado_path}@unparsable: {exc}"]
+        return f"# ADO source: {ado_path}\n{_render_classic(definition)}", [], []
 
     ref = _template_repository_ref(raw)
     chunks = [f"# ADO source: {ado_path}\n{raw}"]

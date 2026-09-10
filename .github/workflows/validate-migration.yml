@@ -10,12 +10,14 @@ on:
     paths:
       - '.github/workflows/**'
       - 'services/**/azure-pipelines.yml'
+      - 'docs/migration/ado-exports/**'
       - 'validation/**'
   push:
     branches: [main]
     paths:
       - '.github/workflows/**'
       - 'services/**/azure-pipelines.yml'
+      - 'docs/migration/ado-exports/**'
       - 'validation/**'
   workflow_dispatch:
 
@@ -84,13 +86,12 @@ jobs:
         run: |
           REPORT=""
 
-          # Map workflow names to services/ADO pipelines
-          for wf in $CHANGED_WORKFLOWS; do
+          # Map a workflow basename to "service|ADO definition name|ADO source path".
+          # The ADO source is a pipeline YAML, or an exported classic definition (.json).
+          map_workflow() {
+            BASE="$1"
             SERVICE=""
             ADO_PIPELINE=""
-
-            # Extract service name from workflow filename
-            BASE=$(basename "$wf" .yml)
             ADO_NAME="$BASE"   # ADO definition name, when it differs from the workflow
             case "$BASE" in
               pricing-engine-ci)
@@ -132,15 +133,20 @@ jobs:
                 ADO_PIPELINE="services/regulatory-reporting/azure-pipelines.yml"
                 ;;
               *)
-                echo "No ADO mapping for $BASE — skipping"
-                continue
+                SERVICE="${BASE%-ci}"
+                ADO_PIPELINE="services/${BASE%-ci}/azure-pipelines.yml"
                 ;;
             esac
+            [ -f "$ADO_PIPELINE" ] || return 1
+            printf '%s|%s|%s\n' "$SERVICE" "$ADO_NAME" "$ADO_PIPELINE"
+          }
 
-            if [ ! -f "$ADO_PIPELINE" ]; then
-              echo "ADO pipeline not found: $ADO_PIPELINE — skipping"
+          for wf in $CHANGED_WORKFLOWS; do
+            MAPPING=$(map_workflow "$(basename "$wf" .yml)") || {
+              echo "No ADO source for $wf — skipping"
               continue
-            fi
+            }
+            IFS='|' read -r SERVICE ADO_NAME ADO_PIPELINE <<<"$MAPPING"
 
             echo "Validating: $SERVICE ($wf ↔ $ADO_PIPELINE)"
             RESULT=$(python validation/scripts/validate_migration.py \
@@ -157,10 +163,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -z "$CHANGED_WORKFLOWS" ]; then
             for wf in .github/workflows/*-ci.yml; do
               [ -f "$wf" ] || continue
-              BASE=$(basename "$wf" .yml)
-              SERVICE="${BASE%-ci}"
-              ADO_PIPELINE="services/$SERVICE/azure-pipelines.yml"
-              [ -f "$ADO_PIPELINE" ] || continue
+              MAPPING=$(map_workflow "$(basename "$wf" .yml)") || continue
+              IFS='|' read -r SERVICE ADO_NAME ADO_PIPELINE <<<"$MAPPING"
 
               echo "Validating (full scan): $SERVICE"
               RESULT=$(python validation/scripts/validate_migration.py \
@@ -170,6 +174,7 @@ jobs:
                 --baselines validation/baselines \
                 --repo-root "$GITHUB_WORKSPACE")
               REPORT="${REPORT}${RESULT}"$'\n\n'
+              echo "$SERVICE|$ADO_NAME|$(basename "$wf")" >> /tmp/parity-targets.txt
             done
           fi
 
