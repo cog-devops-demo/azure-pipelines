@@ -13,20 +13,22 @@
 | Runs in the last 90 days | 5 | Not applicable until dispatched |
 
 The ADO pipeline is a manual-only canary used to exercise the shared Java build
-template against the `portfolio-api` service. The GHA workflow preserves that
-manual-only behavior and inlines the locally available `main` template variant.
+template against the `portfolio-api` service. The GHA workflow preserves the
+manual dispatch behavior, adds a scoped pull-request validation trigger, and
+inlines the locally available `main` template variant.
 
 ## Trigger mapping
 
 | ADO configuration | GHA configuration | Notes |
 |---|---|---|
-| `trigger: none` | `on: workflow_dispatch` | The workflow is manually invoked only. |
+| `trigger: none` | `on: workflow_dispatch` | Preserves the manual invocation mode. |
+| No ADO equivalent | `on: pull_request` with `branches: [main]` and `paths: ['services/portfolio-api/**']` | Intentional GHA addition for pull-request validation limited to portfolio API changes. |
 | `parameters.templateBranch` | `workflow_dispatch.inputs.templateBranch` | A choice input with `main`, `master`, `staging/preprod`, and `staging/release-hardening`; default is `main`. |
 
-No `pull_request` trigger was added. The source pipeline is manual-only, and
-registration is deliberately guarded to `workflow_dispatch`; adding a
-pull-request trigger would change the pipeline's execution and artifact
-registration semantics.
+The source pipeline is manual-only. The pull-request trigger is an intentional
+GHA addition for validation of changes under `services/portfolio-api/**` on
+the `main` branch. Registration remains deliberately guarded to
+`workflow_dispatch`, so pull-request builds do not register artifacts.
 
 ## Template resolution
 
@@ -97,6 +99,7 @@ configuration above.
 |---|---|---|
 | Compile-time `${{ if eq(parameters.templateBranch, 'main') }}` and the three equivalent branch conditions | Runtime `Resolve template branch` step | Logs the requested branch; non-`main` requests emit a `::warning` annotation and execute the inlined `main` template variant. |
 | `trigger: none` | `on: workflow_dispatch` | Manual invocation only. |
+| No ADO pull-request trigger | `on: pull_request` for `main` and `services/portfolio-api/**` | Intentional GHA validation addition. |
 | ADO manual execution behavior | `if: github.event_name == 'workflow_dispatch'` on registration | Keeps Artifactory registration limited to the original manual execution mode, even if another trigger is added later. |
 
 ## Integration points
@@ -119,13 +122,6 @@ needed; the workflow supplies `PIPELINE_URL` as a compatible run-URL shim.
 - Only the `main` template branch is available locally. The `master`,
   `staging/preprod`, and `staging/release-hardening` variants could not be
   verified; those choices run the inlined `main` variant and emit a warning.
-- The workflow is intentionally `workflow_dispatch`-only. The repository
-  validator's `Trigger Configuration` check requires `push` or `pull_request`,
-  so that check reports `FAIL` even though the workflow matches the ADO
-  requirement.
-- `.github/workflows/validate-migration.yml` has no case mapping for
-  `portfolio-api-canary`, so the PR scorecard reports `No migration workflows
-  detected`.
 - GHA does not provide the ADO native test-results tab in this mapping. Surefire
   XML files are uploaded as a `test-results-portfolio-api-canary` artifact
   instead.

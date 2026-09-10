@@ -12,12 +12,12 @@
 # staging/preprod and staging/release-hardening variants could not be read,
 # so every `templateBranch` choice below runs the `main` template logic and a
 # non-`main` choice emits a warning annotation. This workflow is a build smoke
-# test only (no release stage) and should be retired once the template
-# branches are consolidated onto `main`.
+# test for manual and qualifying PR runs (no release stage) and should be
+# retired once the template branches are consolidated onto `main`.
 
 name: portfolio-api-canary
 
-# --- mapped from: trigger: none + parameters.templateBranch ---
+# --- mapped from: trigger: none + parameters.templateBranch; pull_request trigger intentionally added for PR validation (not in ADO) ---
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +30,9 @@ on:
           - master
           - staging/preprod
           - staging/release-hardening
+  pull_request:
+    branches: [main]
+    paths: ['services/portfolio-api/**']
 
 # --- mapped from: variables + build-java.yml parameters ---
 env:
