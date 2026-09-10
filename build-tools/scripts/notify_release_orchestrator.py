@@ -15,6 +15,12 @@ from datetime import datetime, timezone
 
 def notify(service: str, env: str, build_id: str, status: str):
     """Send deployment notification to D2."""
+    pipeline_url = os.environ.get("PIPELINE_URL") or (
+        os.environ.get("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI", "")
+        + os.environ.get("SYSTEM_TEAMPROJECT", "")
+        + "/_build/results?buildId="
+        + build_id
+    )
     notification = {
         "event": "deployment",
         "service": service,
@@ -22,10 +28,7 @@ def notify(service: str, env: str, build_id: str, status: str):
         "build_id": build_id,
         "status": status,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "pipeline_url": os.environ.get("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI", "")
-        + os.environ.get("SYSTEM_TEAMPROJECT", "")
-        + "/_build/results?buildId="
-        + build_id,
+        "pipeline_url": pipeline_url,
         "triggered_by": os.environ.get("BUILD_REQUESTEDFOR", "unknown"),
     }
 
